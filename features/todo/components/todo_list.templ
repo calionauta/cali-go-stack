@@ -1,0 +1,95 @@
+package components
+
+import (
+	"encoding/json"
+	"fmt"
+	"strconv"
+
+	"github.com/calionauta/cali-go-stack/features/todo"
+)
+
+func marshalTodoSignals(s todo.TodoSignals) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+templ TodoList(signals todo.TodoSignals) {
+	<div class="max-w-2xl mx-auto mt-8 px-4">
+		<div class="card bg-base-100 shadow-xl" data-signals={ marshalTodoSignals(signals) }>
+			<div class="card-body">
+				<h2 class="card-title text-2xl mb-4">
+					<svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7 text-primary" viewBox="0 0 20 20" fill="currentColor">
+						<path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z"/>
+					</svg>
+					Todo App
+					<span class="badge badge-ghost ml-2 text-sm font-normal">{ strconv.Itoa(signals.ItemCount) } items</span>
+				</h2>
+
+				<form
+					class="join w-full mb-6"
+					data-on:submit={ "@post('/api/todos', {contentType: 'form'})" }
+				>
+					<input
+						type="text"
+						name="title"
+						class="input input-bordered join-item flex-1"
+						placeholder="Add a new todo..."
+						data-bind="newTitle"
+						autofocus
+					/>
+					<button type="submit" class="btn btn-primary join-item" data-disabled="$loading">
+						Add
+						<span class="loading loading-spinner loading-xs" data-show="$loading"></span>
+					</button>
+				</form>
+
+				<div class="tabs tabs-box mb-4" role="tablist">
+				@renderTab("All", "all", signals.Filter, "/api/todos?filter=all")
+				@renderTab("Active", "active", signals.Filter, "/api/todos?filter=active")
+				@renderTab("Completed", "completed", signals.Filter, "/api/todos?filter=completed")
+				</div>
+
+				<div class="divide-y divide-base-200" id="todo-list">
+					if len(signals.Todos) == 0 {
+						<div class="py-8 text-center text-base-content/40">
+							<svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto mb-3 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+							</svg>
+							<p>No todos yet. Add one above!</p>
+						</div>
+					}
+					for _, item := range signals.Todos {
+						@TodoItem(item)
+					}
+				</div>
+
+				if signals.ItemCount > 0 {
+					<div class="flex justify-between items-center mt-4 pt-4 border-t border-base-200">
+						<span class="text-sm text-base-content/50" data-text="$itemCount + ' items'">
+							{ fmt.Sprintf("%d items", signals.ItemCount) }
+						</span>
+						<button
+							class="btn btn-ghost btn-xs text-error"
+							data-on:click="@post('/api/todos/completed/delete')"
+						>
+							Clear completed
+						</button>
+					</div>
+				}
+			</div>
+		</div>
+
+		<div class="toast toast-end" id="retry-toast" data-show="$loading"></div>
+	</div>
+}
+
+templ renderTab(label, value, current, endpoint string) {
+	<a
+		href="#"
+		role="tab"
+		class={ "tab", templ.KV("tab-active", current == value) }
+		data-on:click={ "@get('" + endpoint + "')" }
+	>
+		{ label }
+	</a>
+}

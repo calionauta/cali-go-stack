@@ -1,0 +1,72 @@
+//go:build jetstream
+
+package nats
+
+import (
+	"encoding/json"
+	"time"
+)
+
+type UserInfo struct {
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	Status   string    `json:"status"` // "active", "idle", "away"
+	JoinedAt time.Time `json:"joinedAt"`
+}
+
+// UserJoin broadcasts a join event and persists to KV.
+func UserJoin(roomID string, info UserInfo) error {
+	kv, err := EnsureKeyValue("room-presence")
+	if err != nil {
+		return err
+	}
+	data, _ := json.Marshal(info)
+	kv.Put("room."+roomID+".user."+info.ID, data)
+
+	event, _ := json.Marshal(map[string]string{
+		"type": "join", "roomID": roomID, "userID": info.ID,
+	})
+	NC.Publish("presence."+roomID+".join", event)
+	return nil
+}
+
+// UserLeave removes user from KV and broadcasts leave event.
+func UserLeave(roomID, userID string) error {
+	kv, err := EnsureKeyValue("room-presence")
+	if err != nil {
+		return err
+	}
+	kv.Delete("room." + roomID + ".user." + userID)
+
+	event, _ := json.Marshal(map[string]string{
+		"type": "leave", "roomID": roomID, "userID": userID,
+	})
+	NC.Publish("presence."+roomID+".leave", event)
+	return nil
+}
+
+// GetRoomUsers returns all active users in a room from KV.
+func GetRoomUsers(roomID string) ([]UserInfo, error) {
+	kv, err := EnsureKeyValue("room-presence")
+	if err != nil {
+		return nil, err
+	}
+	keys, err := kv.Keys()
+	if err != nil {
+		return nil, err
+	}
+
+	var users []UserInfo
+	for _, key := range keys {
+		entry, err := kv.Get(key)
+		if err != nil {
+			continue
+		}
+		var info UserInfo
+		if err := json.Unmarshal(entry.Value(), &info); err != nil {
+			continue
+		}
+		users = append(users, info)
+	}
+	return users, nil
+}
