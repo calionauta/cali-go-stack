@@ -1,0 +1,22 @@
+# .air.toml — Live reload for cali-go-stack
+
+[build]
+  pre_cmd = [
+    "lsof -ti:8080 | xargs kill -9 2>/dev/null || true",
+    "go tool templ generate && (which datastar-lint >/dev/null 2>&1 && datastar-lint -r ./web/ || true)"
+  ]
+  cmd            = "go build -ldflags='-w -X main.Version=dev' -o ./tmp/app ./cmd/web"
+  bin            = "./tmp/app"
+  args_bin       = []
+  include_ext    = ["go", "templ", "yaml"]
+  exclude_dir    = ["tmp", "vendor", "node_modules"]
+  exclude_regex  = ["_templ\\.go$"]
+  kill_delay     = "500ms"
+  send_interrupt = true
+  poll           = true
+  poll_interval  = 500
+  stop_on_error  = true
+[log]
+  time = true
+[misc]
+  clean_on_exit = true

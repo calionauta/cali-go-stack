@@ -1,0 +1,80 @@
+# Getting Started with cali-go-stack
+
+## Prerequisites
+
+- Go 1.26+
+- Air (optional, for live reload): `go install github.com/air-verse/air@latest`
+- Templ: `go install github.com/a-h/templ/cmd/templ@latest`
+
+## Quick Start
+
+```bash
+# Clone the template
+git clone https://github.com/calionauta/cali-go-stack.git my-project
+cd my-project
+
+# Generate templ components and run
+make dev
+```
+
+## What's Included
+
+| Feature | Status |
+|---------|--------|
+| PocketBase (database, auth, REST, realtime) | ✅ Default |
+| goqite task queue + SSE Hub | ✅ Default |
+| Datastar reactive UI + Templ | ✅ Default |
+| DaisyUI + TailwindCSS | ✅ Default |
+| age secrets management | ✅ Default |
+| GoAI LLM SDK | ✅ Default |
+| NATS JetStream (multi-user real-time) | 🔲 Opt-in (`make build-jetstream`) |
+| Turbine workflows | 🔲 Opt-in |
+| Fabric.js whiteboard | 🔲 Opt-in |
+| LiveKit voice AI | 🔲 Opt-in |
+
+## Project Structure
+
+```
+cmd/web/main.go           # Entry point
+config/                   # Configuration (dev/prod)
+db/                       # PocketBase setup + repositories
+internal/
+  secrets/                # age-decrypt loader
+  queue/                  # goqite + SSE Hub + workers
+  nats/                   # NATS JetStream (build-tag gated)
+  llm/                    # GoAI client
+  datastar/               # Datastar render helpers
+features/app/             # Application feature modules
+web/resources/            # Static assets (JS, CSS)
+router/                   # Route registration
+references/               # Reference documentation
+```
+
+## Commands
+
+```bash
+make templ        # Generate Templ components
+make build        # Build the binary
+make build-jetstream  # Build with JetStream support
+make dev          # Live reload with Air
+make test         # Run tests
+make lint         # Run linters
+```
+
+## Adding JetStream
+
+```bash
+# Build with JetStream support
+make build-jetstream
+
+# Or run in dev mode
+go run -tags jetstream ./cmd/web/
+```
+
+## Secrets Setup
+
+```bash
+bin/init-secrets
+# Add to ~/.bashrc:
+export AGE_SECRET_KEY=$(cat ~/.secrets/key.txt)
+```

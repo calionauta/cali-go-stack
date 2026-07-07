@@ -1,0 +1,26 @@
+# Binary
+cali-go-stack
+tmp/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+
+# Data
+data/
+
+# Build
+dist/

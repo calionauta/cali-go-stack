@@ -1,0 +1,50 @@
+package components
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/calionauta/cali-go-stack/features/todo"
+)
+
+templ TodoItem(item todo.Todo) {
+	<div class="flex items-center gap-3 p-3 border-b border-base-300 hover:bg-base-200 transition-colors" id={"todo-" + item.ID}>
+		<input
+			type="checkbox"
+			class="checkbox checkbox-primary checkbox-sm"
+			checked={ item.Completed }
+			data-on:click={ "@post('/api/todos/" + item.ID + "/toggle')" }
+		/>
+		if item.Completed {
+			<span class="flex-1 line-through text-base-content/50">{ item.Title }</span>
+		} else {
+			<span class="flex-1">{ item.Title }</span>
+		}
+		<span class="text-xs text-base-content/40">{ timeAgo(item.CreatedAt) }</span>
+		<button
+			class="btn btn-ghost btn-xs text-error"
+			data-on:click={ "@post('/api/todos/" + item.ID + "/delete')" }
+			title="Delete todo"
+		>
+			<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+				<path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/>
+			</svg>
+		</button>
+	</div>
+}
+
+func timeAgo(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "agora"
+	case d < time.Hour:
+		m := int(d.Minutes())
+		if m == 1 {
+			return "1 min"
+		}
+		return fmt.Sprintf("%d min", m)
+	default:
+		return t.Format("02/01")
+	}
+}
