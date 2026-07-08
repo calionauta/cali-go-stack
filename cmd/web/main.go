@@ -11,6 +11,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 
 	"github.com/calionauta/gogogo-fullstack-template/config"
@@ -23,9 +24,33 @@ import (
 )
 
 func main() {
+	// `health` is a scratch-compatible healthcheck subcommand: it does an
+	// internal GET to /health and exits 0 on 200, 1 otherwise. The image
+	// is scratch (no shell, no wget/curl), so the compose HEALTHCHECK uses
+	// `CMD ["/app", "health"]` (exec form) rather than a shell command.
+	if len(os.Args) > 1 && os.Args[1] == "health" {
+		if err := runHealthcheck(); err != nil {
+			log.Fatalf("healthcheck failed: %v", err)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		log.Fatalf("startup failed: %v", err)
 	}
+}
+
+func runHealthcheck() error {
+	cfg := config.Load()
+	url := fmt.Sprintf("http://127.0.0.1:%d/health", cfg.Port)
+	resp, err := http.Get(url)
+	if err != nil {
+		return fmt.Errorf("GET %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GET %s: status %d", url, resp.StatusCode)
+	}
+	return nil
 }
 
 func run() error {

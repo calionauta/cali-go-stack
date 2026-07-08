@@ -47,7 +47,10 @@ services:
       # env points at, so the in-container path is unchanged.
       - /home/deploy/${APP_NAME:-gogogo-fullstack-template}/data:/var/lib/${APP_NAME:-gogogo-fullstack-template}/data
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1"]
+      # Exec form (no shell) — the image is scratch, so wget/curl and
+      # CMD-SHELL are unavailable. `/app health` is a built-in
+      # scratch-compatible subcommand that GETs /health internally.
+      test: ["CMD", "/app", "health"]
       interval: 30s
       timeout: 5s
       retries: 3

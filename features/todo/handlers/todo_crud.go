@@ -69,7 +69,7 @@ func (h *TodoHandler) handleCreate(c *core.RequestEvent) error {
 	// once it picks up the "todo_created" job. This exercises the full
 	// HTTP → queue → worker → SSE pipeline and lets the retry layer
 	// stream per-attempt feedback if Hub delivery fails.
-	return dshelpers.RenderAndPatch(sse, h.renderTodoList(todos))
+	return dshelpers.RenderAndPatch(sse, h.renderTodoList(todos), sdk.WithSelector("#todo-list"))
 }
 
 // enqueueCreatedEvent packages a "todo_created" job into the queue so
@@ -116,7 +116,7 @@ func (h *TodoHandler) handleToggle(c *core.RequestEvent) error {
 		return c.String(statusInternal, "error listing todos")
 	}
 	sse := sdk.NewSSE(c.Response, c.Request)
-	return dshelpers.RenderAndPatch(sse, h.renderTodoList(todos))
+	return dshelpers.RenderAndPatch(sse, h.renderTodoList(todos), sdk.WithSelector("#todo-list"))
 }
 
 func (h *TodoHandler) handleDelete(c *core.RequestEvent) error {
@@ -138,7 +138,7 @@ func (h *TodoHandler) handleDelete(c *core.RequestEvent) error {
 		return c.String(statusInternal, "error listing todos")
 	}
 	sse := sdk.NewSSE(c.Response, c.Request)
-	if err := dshelpers.RenderAndPatch(sse, h.renderTodoList(todos)); err != nil {
+	if err := dshelpers.RenderAndPatch(sse, h.renderTodoList(todos), sdk.WithSelector("#todo-list")); err != nil {
 		return err
 	}
 	return emitToast(sse, fmt.Sprintf("Deleted “%s”", title), "info")
@@ -163,7 +163,7 @@ func (h *TodoHandler) handleClearCompleted(c *core.RequestEvent) error {
 		return c.String(statusInternal, "error listing todos")
 	}
 	sse := sdk.NewSSE(c.Response, c.Request)
-	if err := dshelpers.RenderAndPatch(sse, h.renderTodoList(todos)); err != nil {
+	if err := dshelpers.RenderAndPatch(sse, h.renderTodoList(todos), sdk.WithSelector("#todo-list")); err != nil {
 		return err
 	}
 	if count == 0 {

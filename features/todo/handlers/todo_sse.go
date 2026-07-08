@@ -150,7 +150,7 @@ func todoFromRecord(r *core.Record) todo.Todo {
 }
 
 func (h *TodoHandler) renderTodoList(todos []todo.Todo) templ.Component {
-	return components.TodoList(todo.Signals{
+	return components.TodoListRegion(todo.Signals{
 		Todos: todos, Filter: "all", ItemCount: len(todos),
 		AdminEnabled: h.cfg.AdminToken != "",
 		LLMEnabled:   h.llmEnabled(),

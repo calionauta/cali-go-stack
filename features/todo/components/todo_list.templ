@@ -68,19 +68,7 @@ templ TodoList(signals todo.Signals) {
 				@renderTab("Completed", "completed", signals.Filter, "/api/todos?filter=completed")
 				</div>
 
-				<div class="divide-y divide-base-200" id="todo-list">
-					if len(signals.Todos) == 0 {
-						<div class="py-8 text-center text-base-content/40">
-							<svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto mb-3 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-							</svg>
-							<p>No todos yet. Add one above!</p>
-						</div>
-					}
-					for _, item := range signals.Todos {
-						@TodoItem(item)
-					}
-				</div>
+				@TodoListRegion(signals)
 
 				if signals.ItemCount > 0 {
 					<div class="flex justify-between items-center mt-4 pt-4 border-t border-base-200">
@@ -103,6 +91,22 @@ templ TodoList(signals todo.Signals) {
 		</div>
 
 		<div class="toast toast-end" id="retry-toast" data-show="$loading"></div>
+	</div>
+}
+
+templ TodoListRegion(signals todo.Signals) {
+	<div class="divide-y divide-base-200" id="todo-list">
+		if len(signals.Todos) == 0 {
+			<div class="py-8 text-center text-base-content/40">
+				<svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto mb-3 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+				</svg>
+				<p>No todos yet. Add one above!</p>
+			</div>
+		}
+		for _, item := range signals.Todos {
+			@TodoItem(item)
+		}
 	</div>
 }
 

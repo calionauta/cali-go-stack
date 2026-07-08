@@ -6,12 +6,19 @@
 //   - GET /login renders the DaisyUI login form.
 //   - POST /login validates credentials via PocketBase's
 //     core.RecordUpsert + record password set helper; on success it
-//     sets the `pb_auth` cookie (HttpOnly + SameSite=Lax) and redirects
-//     to /.
+//     sets the `gogogo_auth` cookie (HttpOnly + SameSite=Lax) and
+//     redirects to /.
 //   - POST /logout clears the cookie and redirects to /login.
 //   - LoadAuthFromCookie is a PocketBase middleware that reads the
 //     cookie on every request and sets e.Auth — handlers that need
 //     the current user just check e.Auth != nil.
+//
+// IMPORTANT: the app uses its OWN cookie name (`gogogo_auth`), NOT
+// PocketBase's `pb_auth`. PB uses `pb_auth` for both regular users and
+// the superuser/admin session. If we reused `pb_auth`, logging into
+// the app would clobber the admin session (and vice-versa), and the
+// admin UI would show "The authorized record is not allowed to perform
+// this action." Keep the two cookies separate.
 //
 // The demo user (demo@demo.app / demo1234456) is seeded by
 // db.SeedDefaults on first run; on a fresh clone it is the only
@@ -21,21 +28,47 @@ package auth
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/pocketbase/pocketbase/core"
 )
 
-const cookieName = "pb_auth"
+// cookieName is the app's own session cookie. Deliberately NOT
+// "pb_auth" (PocketBase's cookie) — see the package doc above.
+const cookieName = "gogogo_auth"
 
 // CookieSecure is set at startup from config (true in production,
 // false in dev so HTTP testing works).
 var CookieSecure bool
 
-// LoadAuthFromCookie is a PocketBase middleware. Reads the pb_auth
+// LoadAuthFromCookie is a PocketBase middleware. Reads the gogogo_auth
 // cookie, validates the token via the SDK, and sets e.Auth so the
 // rest of the request pipeline sees the logged-in user. Invalid
 // tokens clear the cookie to avoid stale state.
+//
+// It deliberately skips PocketBase's own surfaces (the /_/ admin
+// dashboard and everything under /api/, plus /health and /static/).
+// PocketBase authenticates those itself via the pb_auth cookie
+// (superuser for /_/ and admin API endpoints). If we set e.Auth here
+// from the app cookie, PB's admin handlers would see a regular user
+// record and reject admin actions with "The authorized record is not
+// allowed to perform this action." The app's own routes (/, /todos,
+// /login, /logout) are NOT skipped, so they still get e.Auth.
+//
+// NOTE: the app's JSON API under /api/ is also skipped here. None of
+// the current /api/todos* handlers read e.Auth (they use c.App), so
+// that is fine today. If a future /api handler needs e.Auth, bind
+// LoadAuthFromCookie on that specific route instead of relying on
+// this global middleware.
 func LoadAuthFromCookie(e *core.RequestEvent) error {
+	p := e.Request.URL.Path
+	switch {
+	case p == "/health",
+		strings.HasPrefix(p, "/_/"),
+		strings.HasPrefix(p, "/api/"),
+		strings.HasPrefix(p, "/static/"):
+		return e.Next()
+	}
 	cookie, err := e.Request.Cookie(cookieName)
 	if err != nil || cookie.Value == "" {
 		return e.Next()
