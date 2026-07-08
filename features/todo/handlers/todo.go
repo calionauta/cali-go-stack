@@ -140,7 +140,10 @@ func (h *TodoHandler) handleIndex(c *core.RequestEvent) error {
 		SuggestErr:   "",
 	}
 	c.Response.Header().Set("Content-Type", "text/html; charset=utf-8")
-	return components.Layout("Todos \u2014 gogogo-fullstack-template", signals, userEmail).Render(c.Request.Context(), c.Response)
+	return components.Layout(
+		"Todos — gogogo-fullstack-template",
+		signals, userEmail,
+	).Render(c.Request.Context(), c.Response)
 }
 
 // RegisterRoutesOn registers the same routes on a raw router for tests
