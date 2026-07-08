@@ -50,7 +50,26 @@ For ALL HTML UI, use DaisyUI components. Read https://daisyui.com/llms.txt befor
 - Do NOT use raw CSS class names when a DaisyUI component exists
 - Do NOT use `log` package — use `log/slog` (stdlib since Go 1.21)
 - Do NOT manually set the `id` field on a PocketBase record (PK Max=15, Pattern=^[a-z0-9]+$)
-- Do NOT call the real LLM in tests — inject an `LLMClient` interface and use a fake
+- Do NOT call the real LLM in tests — use a fake. Two layers of faking:
+  - **Business logic** (parsing, retry, error handling): inject a function field or `LLMClient` interface with a stub. Zero network, fast.
+  - **Transport** (wire format, auth header, SSE streaming, net timeouts): use `internal/llm/fakeserver` — a real `httptest.Server` speaking the OpenAI `/v1/chat/completions` slice. Only for tests inside `internal/llm/` itself; consumers use function-field injection.
+
+## Testing LLM
+
+The project ships `internal/llm/fakeserver` — a fake OpenAI Chat Completions server for end-to-end tests of the GoAI transport layer **without real tokens or network egress**.
+
+Use it when testing `internal/llm` itself (the client, retries, streaming, timeouts). For features that *call* the LLM (e.g. `features/todo`), inject a stub via function-field — do NOT spin up `httptest` in feature tests.
+
+```go
+srv := fakeserver.New(t, fakeserver.WithResponse("hello"))
+defer srv.Close()
+t.Setenv("GOAI_BASE_URL", srv.URL)
+c := llm.New("test-key")
+out, _ := c.Chat(ctx, "ignored")
+// out == "hello"; srv.CallCount() == 1
+```
+
+Options: `WithResponse`, `WithStreamChunks`, `WithStatusSequence` (retry tests), `WithResponseDelay` (timeout tests), `WithAPIKey` (auth tests). All variants preserve RGBA/transparency-safe behavior. See `internal/llm/fakeserver/fakeserver_test.go` for the full pattern.
 
 ## Architecture
 
