@@ -24,7 +24,7 @@
 #     TS_AUDIENCE          Federated identity Audience
 #   SSH to the server:
 #     DEPLOY_HOST           Tailscale hostname of the server
-#                           (e.g. server.example.com or 100.x.x.x)
+#                           (e.g. server.example.com or 100.x.x.x Tailscale IP)
 #     DEPLOY_USER           the deploy user (e.g. 'deploy')
 #     DEPLOY_SSH_KEY        private SSH key (PEM, the user only)
 #   Demo runtime:
