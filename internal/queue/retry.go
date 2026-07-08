@@ -3,11 +3,14 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/avast/retry-go/v4"
+	"github.com/zendev-sh/goai"
 )
 
 // RetryConfig holds exponential backoff + jitter settings for SSE-aware retries.
@@ -90,7 +93,37 @@ func (r *RetryConfig) Do(ctx context.Context, hub *SSEHub, clientID string, oper
 			return d
 		}),
 		retry.LastErrorOnly(true),
+		// Never retry on 4xx auth/permission errors: they won't
+		// succeed on a second attempt, and retrying just wastes
+		// time + tokens. 429 (rate limit) and 5xx are transient
+		// and DO get retried.
+		retry.RetryIf(func(err error) bool {
+			return !isAuthError(err)
+		}),
 	)
+}
+
+// isAuthError reports whether err is a 401/403 from the upstream LLM
+// provider (or any 4xx that is not 429). It unwraps the error chain
+// so the check works even when callers wrap the original APIError.
+func isAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *goai.APIError
+	if errors.As(err, &apiErr) {
+		switch apiErr.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return true
+		case http.StatusTooManyRequests:
+			return false // retry rate limits
+		}
+		// Other 4xx (400, 404, 422...) are client errors: don't retry.
+		if apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
+			return true
+		}
+	}
+	return false
 }
 
 // DoSilent runs fn with retry but NO SSE feedback (for internal/non-user-facing jobs).
