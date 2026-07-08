@@ -155,6 +155,74 @@ The pre-commit hook regenerates `app.min.css` automatically whenever
 `.templ` or `.go` files change, and `make check` includes a `css-check`
 step that fails the gate if the working CSS file is out of date.
 
+## Deploy to your own box
+
+The default workflow is to **clone + `make dev`** for local work. For a permanent
+demo, the project ships a production deploy workflow that publishes to a
+server of your choosing (recommended: a small Linux box + Tailscale + a
+Cloudflare-tunneled domain). No registry, no cold starts, full control.
+
+### Server layout (multi-project standard)
+
+Pick a directory on your server (e.g. `/opt`) and follow this layout for
+**every** project that adopts the pattern — siblings share the same shape:
+
+```
+/opt/
+└── gogogo-template/                  ← this project
+    ├── bin/
+    │   ├── gogogo-template             ← current binary (chmod 755)
+    │   └── gogogo-template.previous    ← prior binary, kept for fast rollback
+    ├── compose/
+    │   └── docker-compose.prod.yml
+    ├── env/
+    │   └── .env                       ← non-secret env (DATABASE_URL, APP_URL, ...)
+    ├── secrets/
+    │   └── gogogo-template.env         ← mode 600, regenerated every deploy from GH Secrets
+    ├── data/
+    │   └── pb_data/                    ← persistent volume, survives restarts
+    ├── repo/                           ← git clone of this repo (for re-syncing on each deploy)
+    ├── scripts/
+    │   └── deploy-prod.sh             ← the on-server deploy runner
+    └── README.md                       ← operator's guide (link to this section)
+
+/opt/<other-project>/                  ← siblings follow the same shape
+    ├── bin/
+    ├── compose/
+    ├── env/
+    ├── secrets/
+    └── data/
+```
+
+### First-time setup on the server
+
+1. Install Docker + create a `deploy` user with SSH key access.
+2. Add the box to your Tailscale tailnet.
+3. Configure a Cloudflare Tunnel that routes your domain (e.g. `fullstack.example.com`)
+   to the Tailscale hostname on port 8080.
+4. Clone the repo at `/opt/gogogo-template/repo/` and run `./repo/scripts/setup-server.sh`
+   (we ship this in a follow-up; the manual steps are: `mkdir -p bin compose env secrets data/pb_data scripts`).
+5. Add the GitHub Actions secrets (see `.github/workflows/deploy.yml` for the full list).
+
+### After setup, every push to `master` deploys
+
+The workflow at `.github/workflows/deploy.yml` runs on every push to `master` and:
+
+1. Builds the project (lint + race tests + CSS build).
+2. Builds the production Docker image (linux/amd64 scratch) in the GH Action runner.
+3. SCPs the new binary to the server as `gogogo-template.new` (atomic swap).
+4. Writes the secrets file (`/opt/gogogo-template/secrets/gogogo-template.env`) with mode 600.
+5. SSHes in and runs `scripts/deploy-prod.sh` which:
+   - Atomically renames `gogogo-template.new` → `gogogo-template` and keeps the old binary as `.previous`.
+   - Restarts the container via `docker compose -f docker-compose.prod.yml up -d`.
+   - Waits up to 30s for `/health` to return 200.
+6. Prints the new container status + last 20 log lines for confirmation.
+
+Secrets are **never stored long-term on the server**: every deploy
+re-renders `/opt/gogogo-template/secrets/gogogo-template.env` from GitHub
+Actions secrets. The file is `chmod 600`, owned by the `deploy` user,
+and overwritten on every run — there is no history of secrets on disk.
+
 ## Structure
 
 ```

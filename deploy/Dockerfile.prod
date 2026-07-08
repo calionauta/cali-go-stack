@@ -1,0 +1,85 @@
+# syntax=docker/dockerfile:1.7
+#
+# deploy/Dockerfile.prod — production image, built on the GH Actions
+# runner (linux/amd64) and deployed to the user's own server via
+# SSH. The runtime contract is identical to the project's top-level
+# Dockerfile (scratch + ca-certificates.crt + /tmp + USER 65532);
+# the only reason this lives at deploy/Dockerfile.prod is so the
+# dev Dockerfile (which uses alpine for build tooling) and the
+# production one don't compete for the same image tag in local dev.
+#
+# See top-level Dockerfile for the rationale on the base image and
+# the CSS-build step. This file is a near-copy because the dev and
+# prod paths have identical runtime requirements; the only
+# difference is the CSS build runs *inside* the GH Action's build
+# step rather than inside the local `make dev` step.
+
+# ────────────────────────────
+# Stage 1: builder
+# ────────────────────────────
+FROM golang:1.26-alpine AS builder
+RUN apk add --no-cache git ca-certificates nodejs npm
+WORKDIR /src
+
+# Install Go module deps first (cached independently of source).
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
+    --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
+    go mod download
+
+# Install CSS build deps (Tailwind v4 CLI + DaisyUI v5).
+COPY package.json package-lock.json* ./
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    npm install --no-audit --no-fund
+
+# Now copy the rest of the source and run all the build steps.
+# linux/amd64 is forced here so a developer who runs docker build
+# on a Mac M-series still produces an x86 image for the server.
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
+    --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
+    --mount=type=cache,target=/root/.npm,sharing=locked \
+    go tool templ generate && \
+    npm run build --silent && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+        -trimpath -ldflags="-s -w" \
+        -o /out/app ./cmd/web/
+
+# Stash the ca-certificates bundle so the runtime stage can copy it
+# without needing a shell.
+RUN mkdir -p /out/etc/ssl/certs && \
+    cp /etc/ssl/certs/ca-certificates.crt /out/etc/ssl/certs/
+
+# ────────────────────────────
+# Stage 2: runtime (scratch)
+# ────────────────────────────
+FROM scratch
+
+# The static Go binary. CGO_ENABLED=0 + -ldflags="-s -w" means no
+# libc dependency; the binary runs on the empty scratch image.
+COPY --from=builder /out/app /app
+
+# ca-certificates for HTTPS to LLM providers (OpenAI, Groq, etc.).
+COPY --from=builder /out/etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+# Go's runtime expects /tmp to be writable (e.g. for memory-mapped
+# file backings in some stdlib paths). scratch has no /tmp, so
+# create it. The PocketBase data dir also lives in /tmp by default;
+# we mount a real volume there in the compose file for persistence.
+COPY --from=builder /tmp /tmp
+
+ENV HOME=/tmp \
+    XDG_CONFIG_HOME=/tmp \
+    XDG_CACHE_HOME=/tmp
+
+# Run as non-root: scratch has no /etc/passwd, so we use the
+# numeric UID directly. 65532 is the standard "nonroot" UID used
+# by the distroless nonroot images.
+USER 65532:65532
+
+EXPOSE 8080
+
+# Healthcheck needs a shell — scratch has none. The compose file
+# uses a wget-based HTTP check instead. See deploy/docker-compose.prod.yml.
+
+ENTRYPOINT ["/app"]

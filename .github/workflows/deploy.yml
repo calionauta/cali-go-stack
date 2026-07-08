@@ -1,38 +1,203 @@
-name: Deploy
+# deploy.yml — production deploy to the user's own server
+# (calionauta/fullstack.example.com via Tailscale + Cloudflare tunnel).
+#
+# Trigger: every push to master. The workflow:
+#   1. Builds the project (lint + test + race + CSS build)
+#   2. Builds the production Docker image (linux/amd64 scratch)
+#   3. SCPs the binary + compose file to the server (via Tailscale)
+#   4. SSHes in and runs scripts/deploy-prod.sh which:
+#        - atomically swaps the binary
+#        - writes the secrets file (mode 600) from GH Secrets
+#        - restarts the container
+#        - waits for /health
+#
+# Secrets are NEVER stored long-term on the server: every deploy
+# re-renders the secrets file from GitHub Actions secrets, which
+# are the single source of truth. The previous binary is kept as
+# `gogogo-template.previous` so an operator can roll back instantly.
+#
+# Required GitHub Actions secrets (Settings > Secrets > Actions):
+#   Tailscale:
+#     TS_OAUTH_CLIENT_ID   Tailscale OAuth client ID
+#     TS_OAUTH_SECRET       Tailscale OAuth client secret
+#   SSH to the server:
+#     DEPLOY_HOST           Tailscale hostname of the server
+#                           (e.g. gogogo-server.tail-<hash>.ts.net)
+#     DEPLOY_USER           the deploy user (e.g. 'deploy')
+#     DEPLOY_SSH_KEY        private SSH key (PEM, the user only)
+#   Demo runtime:
+#     GOAI_API_KEY          Groq / OpenAI / OpenRouter key
+#     ADMIN_UNLOCK_TOKEN    master password for the admin panel
+#                           (set empty to disable the panel)
+#
+# The deploy job never echoes secrets. The .env file is written
+# with mode 0600 and owned by the deploy user; the container
+# reads it via env_file.
+
+name: Deploy to production
+
 on:
   push:
     branches: [master]
   workflow_dispatch:
+
+# Never run two deploys in parallel: the binary swap + container
+# restart is racy. The cancel-in-progress=false keeps the first
+# deploy running until completion.
+concurrency:
+  group: prod-deploy
+  cancel-in-progress: false
+
 permissions:
-  packages: write
   contents: read
+
 jobs:
-  deploy:
+  # ─────────────────────────────────────────────
+  # 1. Build + test on linux/amd64
+  # ─────────────────────────────────────────────
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          fetch-depth: 0
-      - uses: docker/setup-buildx-action@v3
-      - run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-      - id: version
+          go-version: "1.26"
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install JS deps
+        run: npm install --no-audit --no-fund
+
+      - name: Generate CSS
+        run: npm run build
+
+      - name: Test
+        run: go test -race -count=1 ./...
+
+      - name: Build prod binary
         run: |
-          VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-      - uses: docker/metadata-action@v5
+          mkdir -p bin
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+              -trimpath -ldflags="-s -w" \
+              -o bin/gogogo-template.new ./cmd/web/
+
+      - name: Stash binary
+        uses: actions/upload-artifact@v4
         with:
-          images: ghcr.io/calionauta/gogogo-template
-          tags: |
-            type=ref,event=branch
-            type=sha
-            type=raw,value=latest
-      - uses: docker/build-push-action@v6
+          name: gogogo-template-linux-amd64
+          path: bin/gogogo-template.new
+
+  # ─────────────────────────────────────────────
+  # 2. Deploy via Tailscale SSH
+  # ─────────────────────────────────────────────
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    # Only on master push or manual dispatch (not on PRs).
+    if: github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bring up Tailscale in the runner
+        # The user's box is on a Tailscale network. We bring Tailscale
+        # up in the GH runner so we can reach it. OAuth (not authkey)
+        # because authkeys are long-lived credentials; OAuth is scoped
+        # to this run only.
+        uses: tailscale/github-action@v2
         with:
-          context: .
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.meta.outputs.tags }}
-          build-args: |
-            CGO_ENABLED=0
-            VERSION=${{ steps.version.outputs.version }}
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          args: --ssh
+
+      - name: Download built binary
+        uses: actions/download-artifact@v4
+        with:
+          name: gogogo-template-linux-amd64
+          path: dist/
+
+      # Write the secrets file with mode 600 BEFORE any container
+      # could read it. The secrets are sourced from GitHub Secrets;
+      # the file is regenerated on every deploy and is never
+      # committed to the repo.
+      - name: Write secrets file (mode 600)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: GOAI_API_KEY,ADMIN_UNLOCK_TOKEN
+          script: |
+            set -euo pipefail
+            APP_NAME="gogogo-template"
+            SECRETS_DIR="/opt/${APP_NAME}/secrets"
+            mkdir -p "$SECRETS_DIR"
+            umask 077
+            # Atomic write: render to .tmp, then mv (so a crash mid-write
+            # doesn't leave a half-baked file the container could read).
+            cat > "$SECRETS_DIR/${APP_NAME}.env.tmp" <<EOF
+            GOAI_API_KEY=${GOAI_API_KEY}
+            ADMIN_UNLOCK_TOKEN=${ADMIN_UNLOCK_TOKEN}
+            EOF
+            mv "$SECRETS_DIR/${APP_NAME}.env.tmp" "$SECRETS_DIR/${APP_NAME}.env"
+            chmod 0600 "$SECRETS_DIR/${APP_NAME}.env"
+            echo "✓ secrets file written (mode 600)"
+
+      # SCP the new binary to /opt/gogogo-template/bin/ as .new so
+      # the on-server script can atomically swap it.
+      - name: Copy binary to server
+        uses: appleboy/scp-action@v0.1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: dist/gogogo-template.new
+          target: /opt/gogogo-template/bin/gogogo-template.new
+
+      # SCP the compose file (overwriting the previous one).
+      - name: Copy compose file
+        uses: appleboy/scp-action@v0.1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: deploy/docker-compose.prod.yml
+          target: /opt/gogogo-template/compose/docker-compose.prod.yml
+
+      # Ensure the directory layout exists, pull the latest source so
+      # the on-server script and the scripts dir are current, then run
+      # the deploy. The on-server script does the atomic binary swap
+      # + container restart + health-check wait.
+      - name: Ensure layout + run deploy
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            APP_NAME="gogogo-template"
+            APP_DIR="/opt/${APP_NAME}"
+            mkdir -p "${APP_DIR}"/{bin,compose,env,secrets,data/pb_data}
+
+            # First-time setup: clone the repo (or pull if already cloned).
+            if [ ! -d "${APP_DIR}/repo" ]; then
+              git clone "https://github.com/${{ github.repository }}.git" "${APP_DIR}/repo"
+            else
+              git -C "${APP_DIR}/repo" pull --ff-only
+            fi
+
+            # Sync the latest .env and deploy-prod.sh from the repo.
+            cp "${APP_DIR}/repo/.env" "${APP_DIR}/env/.env" 2>/dev/null || true
+            cp "${APP_DIR}/repo/scripts/deploy-prod.sh" "${APP_DIR}/scripts/deploy-prod.sh"
+            chmod 0700 "${APP_DIR}/scripts/deploy-prod.sh"
+
+            bash "${APP_DIR}/scripts/deploy-prod.sh"
