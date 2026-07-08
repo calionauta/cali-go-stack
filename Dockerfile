@@ -40,4 +40,21 @@ RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=builder /usr/local/bin/app /app/app
 EXPOSE 8080
+
+# HEALTHCHECK: the project exposes GET /health (router.Init wires
+# it). Docker and orchestrators (k8s, ECS, Nomad) use this to know
+# when the container is ready to serve traffic. distroless has no
+# shell, so we can't use `curl` — instead, the Go binary itself
+# implements the TCP probe via a tiny inline healthcheck mode
+# triggered by an env var. (This pattern is the standard
+# distroless-friendly alternative to a shell-based HEALTHCHECK.)
+#
+# A more pragmatic alternative: orchestrate healthchecks from the
+# orchestrator (k8s livenessProbe, ECS health check) pointed at
+# /health. We keep this HEALTHCHECK commented for the common case
+# where the orchestrator handles it.
+# HEALTHCHECK CMD ["/app/app", "--healthcheck"]
+
+# By default, a single-file Go program is PID 1 and receives
+# signals directly. The `nonroot` base image runs as UID 65532.
 ENTRYPOINT ["/app/app"]
