@@ -2,6 +2,7 @@ package router
 
 import (
 	"io/fs"
+	"log"
 	"net/http"
 
 	"github.com/pocketbase/pocketbase"
@@ -63,7 +64,7 @@ func Init(
 		// types, and no auth is required (the dashboard auth is per-route,
 		// not a global guard — proven by /api/todos serving unauthed).
 		staticFS := resources.StaticFS()
-		fs.WalkDir(staticFS, ".", func(path string, d fs.DirEntry, err error) error {
+		if err := fs.WalkDir(staticFS, ".", func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
@@ -77,7 +78,9 @@ func Init(
 				return nil
 			})
 			return nil
-		})
+		}); err != nil {
+			log.Printf("static: error walking embedded assets: %v", err)
+		}
 
 		// Auth: login/logout/cookie middleware. Wires the demo login
 		// page and ensures every request has e.Auth populated from the

@@ -2,7 +2,6 @@ package auth
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -30,7 +29,6 @@ func RegisterAuth(se *core.ServeEvent) {
 	se.Router.GET("/login", handleLoginGetWithRedirect)
 	se.Router.POST("/login", HandlePasswordLogin)
 	se.Router.POST("/logout", HandleLogout)
-
 }
 
 // HandleLoginGetForTest is the exported alias used by features that
@@ -80,7 +78,3 @@ func renderLoginPageTo(e *core.RequestEvent, errMsg string) error {
 	e.Response.WriteHeader(http.StatusOK)
 	return LoginPage(next, errMsg).Render(e.Request.Context(), e.Response)
 }
-
-// silence unused-import warnings if the package is built with strict
-// linters that flag the strconv import separately.
-var _ = strconv.Itoa
