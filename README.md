@@ -31,11 +31,12 @@ Everything you need to build a modern web app, in a single binary:
 | **CI/CD** | GitHub Actions | `ci.yml` (lint + test + build, tag matrix `""`/`jetstream`/`turbine`) + `deploy.yml` (multi-arch Docker to ghcr.io, runs on `master`) |
 | **Container** | distroless `static-debian12:nonroot` | No shell, no package manager, ~20MB final image |
 
-Fully CGO-free. Single binary. `make build` and you're done.
+> **Fully CGO-free. Single binary. `make build` and you're done.**
+> No libc, no `CGO_ENABLED=0` dance, runs in a distroless `static-debian12:nonroot` container (~20MB final image).
 
 ## Stack in layers, not silos
 
-One thing that bothered me most in ready-made templates is that they assume **one** solution per problem. In reality you need a queue **and** workflows **and** real-time — each for a different thing.
+Most templates force you to pick one async strategy — usually a queue, sometimes a workflow runtime, rarely both. Real apps need **a queue for background jobs**, **a workflow runtime for durable multi-step processes**, and **a real-time layer for cross-client state** — each solving a different problem. This template ships all three as build-tagged layers so you only pay for what you use.
 
 This template solves it with **three complementary async layers**:
 
@@ -53,7 +54,7 @@ The template ships with a working Todo App:
 
 - Full CRUD via PocketBase
 - Reactive UI with Datastar + DaisyUI
-- Real-time SSE streaming (register-before-enqueue, replay buffer for late subscribers, backpressure on slow clients)
+- Real-time SSE streaming. Mutations (`create`/`toggle`/`delete`) publish to `nats.TodoBroadcaster`; default build fans out via the in-process SSE Hub (single-instance), `-tags jetstream` fans out via a durable JetStream stream (multi-instance). Late joiners get a replay buffer; slow clients are dropped, never block the producer.
 - Stacked toast notifications (auto-dismiss, manual close, progress bar)
 - Async jobs: `handleCreate` enqueues a `todo_created` job; a worker picks it up and streams a success toast to the right browser tab via the SSE Hub (`clientID` routing)
 - Retries with exponential backoff and jitter (`internal/queue/retry.go`, retry-go v4) — SSE-aware: a retry emits a `lastRetry` signal so the UI can show "retrying…"
@@ -72,6 +73,8 @@ Enough to understand the pattern and start your own feature module.
 It's not a framework. There's no lock-in. Each piece can be replaced individually.
 
 ## Getting started
+
+Use this template (green **Use this template** button above) or clone it:
 
 ```bash
 git clone https://github.com/calionauta/cali-go-stack.git my-project
