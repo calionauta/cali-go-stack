@@ -1,9 +1,17 @@
 # gogogo-fullstack-template
 
+> Full-stack Go web application template — back-end + front-end + DB + auth + LLM + deploy, all in one binary.
+
 ## Project Overview
 
 Go web application template with Datastar + Templ + PocketBase + goqite + Turbine + NATS JetStream.
 Module: `github.com/calionauta/gogogo-fullstack-template`
+
+**Naming convention.** The repository, module path, Go binary, deployment
+directory (`/home/deploy/<APP_NAME>/`), Docker container name and
+Cloudflare Tunnel hostname all share the same project name. When you clone
+this template, replace `gogogo-fullstack-template` with your own snake-case
+project name everywhere (or run a one-shot search-and-replace over the tree).
 
 ## Stack
 

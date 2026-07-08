@@ -24,7 +24,7 @@ Everything you need to build a modern web app, in a single binary:
 | Layer | Choice | Why |
 |-------|--------|-----|
 | **Language** | Go 1.26 | Fast compilation, easy deploy, lean runtime |
-| **Database + Auth + API** | [PocketBase](https://pocketbase.io) (embedded, on `ncruces/go-sqlite3`) | Zero-config auth, REST, [admin UI at `/_/`](https://fullstack.example.com/_/), file storage — all in SQLite |
+| **Database + Auth + API** | [PocketBase](https://pocketbase.io) (embedded, on `ncruces/go-sqlite3`) | Zero-config auth, REST, [admin UI at `/_/`](https://<your-domain>/_/), file storage — all in SQLite |
 | **Templating** | [Templ](https://templ.guide) | Type-safe Go components, generated at build time |
 | **Reactive UI** | [Datastar](https://data-star.dev) (SSE) | Server-rendered over SSE, single ~12 KiB client. CSS built once via Tailwind v4 CLI; no JS runtime. |
 | **CSS** | [DaisyUI v5](https://daisyui.com) + TailwindCSS | Ready components, customizable, ~34kB minified |
@@ -81,7 +81,7 @@ Enough to understand the pattern and start your own feature module.
 
 ## PocketBase admin UI (built in)
 
-PocketBase ships a full admin UI for free — it runs at **`/_/`** on the same domain. For the live demo: [fullstack.example.com/_/](https://fullstack.example.com/_/).
+PocketBase ships a full admin UI for free — it runs at **`/_/`** on the same domain. Once deployed, your admin UI lives at `https://<your-domain>/_/`.
 
 What you get out of the box:
 
