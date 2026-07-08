@@ -151,15 +151,17 @@ The `deploy` user (no passwordless sudo) owns the layout. `/home/deploy` is writ
 
 | Secret | Where to get it |
 |---|---|
-| `TS_OAUTH_CLIENT_ID` | [login.tailscale.com/admin/settings/oauth](https://login.tailscale.com/admin/settings/oauth) → New OAuth client. Scopes: `device`, `auth_keys:write` (read+write). Tags: `tag:ci`. |
-| `TS_OAUTH_SECRET` | Same page as the client ID. |
+| `TS_OAUTH_CLIENT_ID` | [login.tailscale.com/admin/settings/identity](https://login.tailscale.com/admin/settings/identity) → New federated identity. Issuer: GitHub. Audience: anything memorable (e.g. `ts-actions-deploy`). Copy the **Client ID** (not a secret). |
+| `TS_AUDIENCE` | Same page as the client ID — the **Audience** value you chose. |
 | `DEPLOY_HOST` | The Tailscale hostname or `100.x.x.x` Tailscale IP of the server. Must be reachable from the GH runner (which is on a Tailscale net for the duration of the job). |
 | `DEPLOY_USER` | The SSH user on the server (e.g. `deploy`). Must be in the Tailscale ACL allowing SSH from the runner. |
 | `DEPLOY_SSH_KEY` | The private SSH key (PEM). The corresponding public key goes in `~/.ssh/authorized_keys` on the server. |
 | `GOAI_API_KEY` | Any OpenAI-compatible key (Groq, OpenAI, OpenRouter). |
 | `ADMIN_UNLOCK_TOKEN` | `openssl rand -hex 32` (or empty to disable the custom admin panel). |
 
-If `TS_OAUTH_*` are missing, the deploy job fails at the "Bring up Tailscale" step. The workflow is structured so any missing secret causes a fast, named failure (not a silent hang).
+**No `TS_OAUTH_SECRET`** — unlike the older OAuth-client flow, OIDC federated identities don't need a static secret. The runner mints a short-lived JWT signed by GitHub Actions; Tailscale verifies it via the `aud` claim. Recommended by Tailscale over OAuth clients. See [Workload identity federation](https://tailscale.com/docs/features/workload-identity-federation).
+
+If `TS_OAUTH_CLIENT_ID` or `TS_AUDIENCE` are missing, the deploy job fails at the "Bring up Tailscale" step. The workflow is structured so any missing secret causes a fast, named failure (not a silent hang).
 
 ### Adding a new sub-domain (Cloudflare Tunnel)
 

@@ -18,9 +18,10 @@
 # `gogogo-template.previous` so an operator can roll back instantly.
 #
 # Required GitHub Actions secrets (Settings > Secrets > Actions):
-#   Tailscale (to reach the server on its private IP):
-#     TS_OAUTH_CLIENT_ID   Tailscale OAuth client ID
-#     TS_OAUTH_SECRET      Tailscale OAuth client secret
+#   Tailscale (OIDC workload identity federation — no static secret):
+#     TS_OAUTH_CLIENT_ID   Federated identity Client ID (from
+#                          https://login.tailscale.com/admin/settings/identity)
+#     TS_AUDIENCE          Federated identity Audience
 #   SSH to the server:
 #     DEPLOY_HOST           Tailscale hostname of the server
 #                           (e.g. server.example.com or 100.x.x.x)
@@ -103,26 +104,37 @@ jobs:
     runs-on: ubuntu-latest
     # Only on master push or manual dispatch (not on PRs).
     if: github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
+    # Required for the Tailscale OIDC federated identity — the
+    # runner needs to mint a JWT for the Tailscale IdP to verify.
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Bring up Tailscale in the runner
-        # The user's box is on a Tailscale network. We bring Tailscale
-        # up in the GH runner so we can reach the deploy host
-        # (100.x.x.x / server.example.com). OAuth (not authkey)
-        # because authkeys are long-lived credentials; OAuth is scoped
-        # to this run only.
+        # Uses OIDC Workload Identity Federation — the runner
+        # authenticates to Tailscale with a short-lived JWT signed
+        # by GitHub Actions. No static secret. Recommended by
+        # Tailscale over OAuth clients.
         #
-        # To set this up: create an OAuth client at
-        # https://login.tailscale.com/admin/settings/oauth (scopes:
-        # device:write, auth_keys:write), then add the ID and secret
-        # as GitHub Actions secrets named TS_OAUTH_CLIENT_ID and
-        # TS_OAUTH_SECRET. See AGENTS.md for full instructions.
-        uses: tailscale/github-action@v2
+        # To set this up:
+        #   1. Create a tag in your tailnet (e.g. `tag:ci`) and
+        #      grant it the access permissions the CI runner needs
+        #      (e.g. SSH to the deploy user on the server).
+        #   2. Create a federated identity at
+        #      https://login.tailscale.com/admin/settings/identity
+        #      (issuer: GitHub, audience: anything memorable, e.g.
+        #      `ts-actions-deploy`). You'll get a Client ID and an
+        #      Audience.
+        #   3. Add the Client ID as TS_OAUTH_CLIENT_ID and the
+        #      Audience as TS_AUDIENCE in GH Secrets.
+        #   4. The `id-token: write` permission above is mandatory.
+        uses: tailscale/github-action@v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          audience: ${{ secrets.TS_AUDIENCE }}
           tags: tag:ci
           args: --ssh
 
