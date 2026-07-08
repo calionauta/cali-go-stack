@@ -88,6 +88,10 @@ docs/                     Decision logs and guides
 Three async layers (complementary, not alternatives):
 `goqite` → background jobs + SSE; `turbine` → durable workflows; `JetStream` → multi-user real-time.
 
+### PocketBase admin UI
+
+PocketBase ships a full admin UI (data browser, REST playground, superuser, backups, file storage) on the same port at **`/_/`** — no extra service, no extra auth to wire. In production, lock it down with PocketBase's own superuser auth + (optionally) an IP allowlist or oauth2-proxy in front. See `docs/decisions.md` for the deployment choices.
+
 ## Build tags (`goqite` is core, the others are opt-in)
 
 The default build (`go build ./cmd/web`) is the recommended starting point for almost every project. It ships the full UI, the queue, the SSE Hub, the LLM client, the auth feature, and the demo Todo app. The only async layer that's gated is `goqite` itself being **always on** — the others are opt-in heavyweight features:
@@ -124,6 +128,20 @@ Cross-client todo mutations go through `nats.TodoBroadcaster` (wired in `router.
 ## LLM Integration (GoAI)
 
 `internal/llm` wraps GoAI behind an injectable interface. Tests must NOT call the real provider — inject a fake (or VCR replay). Streaming modeled as an iterator so backpressure/cancel are testable.
+
+## Linting
+
+The project layers three linters, all wired into `make check`:
+
+| Linter | What it catches | Repo / docs |
+|--------|----------------|-------------|
+| [gofumpt](https://github.com/mvdan/gofumpt) + [goimports](https://pkg.go.dev/golang.org/x/tools/cmd/goimports) | Stricter `gofmt` (added grouping, alignment, no leading zero in decimals) + import grouping | `make fmt` |
+| [golangci-lint v2.12.2](https://golangci-lint.run) | errcheck, govet, staticcheck, lll, gosec, gocritic, gocyclo, noctx, ... | `make lint` |
+| [datastar-lint](https://github.com/calionauta/datastar-lint) | Data-attribute shape, signal/expression validity, SSE handler patterns, missing `data-on`, etc. — the Datastar analog of `eslint-plugin-datastar` | `make datastar-lint` |
+
+`make check` runs all three. `make setup` installs blocking pre-commit + pre-push hooks on the same gate (pre-push adds `govulncheck`).
+
+When adding a new `.templ` file, run `make datastar-lint` locally before pushing — it catches attribute errors that won't surface until runtime.
 
 ## Testing
 

@@ -1,7 +1,7 @@
 # gogogo-template
 
 <p align="center">
-  <img src="web/resources/static/logo.png" alt="gogogo-template" width="320">
+  <img src="web/resources/static/logo.png" alt="gogogo-template" width="512">
 </p>
 
 A starting point for web projects in Go. Single binary, zero external services, LLM-friendly.
@@ -24,7 +24,7 @@ Everything you need to build a modern web app, in a single binary:
 | Layer | Choice | Why |
 |-------|--------|-----|
 | **Language** | Go 1.26 | Fast compilation, easy deploy, lean runtime |
-| **Database + Auth + API** | [PocketBase](https://pocketbase.io) (embedded, on `ncruces/go-sqlite3`) | Zero-config auth, REST, admin UI, file storage — all in SQLite |
+| **Database + Auth + API** | [PocketBase](https://pocketbase.io) (embedded, on `ncruces/go-sqlite3`) | Zero-config auth, REST, [admin UI at `/_/`](https://fullstack.example.com/_/), file storage — all in SQLite |
 | **Templating** | [Templ](https://templ.guide) | Type-safe Go components, generated at build time |
 | **Reactive UI** | [Datastar](https://data-star.dev) (SSE) | Server-rendered over SSE, single ~12 KiB client. CSS built once via Tailwind v4 CLI; no JS runtime. |
 | **CSS** | [DaisyUI v5](https://daisyui.com) + TailwindCSS | Ready components, customizable, ~34kB minified |
@@ -78,6 +78,21 @@ The template ships with a working Todo App:
 > Every existing feature (toast on create, AI suggest, admin unlock, Turbine onboarding) follows this exact shape.
 
 Enough to understand the pattern and start your own feature module.
+
+## PocketBase admin UI (built in)
+
+PocketBase ships a full admin UI for free — it runs at **`/_/`** on the same domain. For the live demo: [fullstack.example.com/_/](https://fullstack.example.com/_/).
+
+What you get out of the box:
+
+- **Visual data browser** for every collection (todos, users, etc.) with sort/filter/CSV export
+- **REST + JS SDK playground** for the API endpoints PocketBase generated from your schema
+- **Superuser management** (create the first one via the install link printed in the server logs)
+- **File storage** (S3-compatible uploads, images, attachments)
+- **Backups** (SQLite snapshot, download + restore)
+- **Logs** (requests, errors, slow queries)
+
+This is **not a custom admin panel** — it's the upstream PocketBase UI, embedded in the same binary, on the same port. No extra service to deploy, no extra auth to wire. For production, point a Cloudflare Tunnel / Caddy ingress at the same `/_/` path and lock it down (IP allowlist, oauth2-proxy in front, or just PocketBase's own superuser auth).
 
 ## Free LLM providers (OpenAI-compatible, no card required)
 
