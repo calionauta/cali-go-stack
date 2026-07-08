@@ -159,15 +159,18 @@ jobs:
           ADMIN_UNLOCK_TOKEN: ${{ secrets.ADMIN_UNLOCK_TOKEN }}
         run: |
           set -euo pipefail
-          # Set up SSH key + config once for this run.
+          # Tailscale SSH (port 2222) authenticates via the Tailscale
+          # identity the GH runner already proved via OIDC in the
+          # 'Bring up Tailscale' step. The IdentityFile is unused;
+          # the ACL tag match (tag:continuous-integration -> server)
+          # is what actually authorizes the session.
           mkdir -p ~/.ssh && chmod 0700 ~/.ssh
-          printf '%s' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key && chmod 0600 ~/.ssh/deploy_key
+          ssh-keyscan -t ed25519 -p 2222 $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
           cat > ~/.ssh/config <<EOF
           Host $DEPLOY_HOST
             Port 2222
-            StrictHostKeyChecking no
-            UserKnownHostsFile /dev/null
-            IdentityFile ~/.ssh/deploy_key
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
             User $DEPLOY_USER
           EOF
           chmod 0600 ~/.ssh/config
