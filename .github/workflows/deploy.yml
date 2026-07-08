@@ -164,6 +164,7 @@ jobs:
           printf '%s' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key && chmod 0600 ~/.ssh/deploy_key
           cat > ~/.ssh/config <<EOF
           Host $DEPLOY_HOST
+            Port 2222
             StrictHostKeyChecking no
             UserKnownHostsFile /dev/null
             IdentityFile ~/.ssh/deploy_key
