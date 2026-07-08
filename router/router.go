@@ -50,7 +50,7 @@ func Init(
 		// page and ensures every request has e.Auth populated from the
 		// pb_auth cookie before reaching feature handlers.
 		auth.CookieSecure = !cfg.Dev && cfg.Host != "127.0.0.1"
-		auth.RegisterAuth(app)
+		auth.RegisterAuth(se)
 
 		// Register example feature: Todo MVC. Use the same handler
 		// instance the caller registered for background jobs so route
