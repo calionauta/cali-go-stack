@@ -23,20 +23,50 @@ import (
 // Cookie attributes: HttpOnly (set via CookieSecure for production).
 func RegisterAuth(app *pocketbase.PocketBase) {
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
-		// Render the login form via the templ component. We assign
-		// to the package-level renderLogin so auth.go stays in
-		// "handler-only, no templ imports" territory. The captured
-		// handler is bound later (right before request handling); the
-		// router handles the actual GET wiring.
-		se.Router.GET("/login", RedirectIfAuthed).BindFunc(handleLoginGet)
+		// The /login route has TWO purposes:
+		//   1. Redirect already-signed-in users to /
+		//   2. Render the login form for everyone else
+		// Combine both into a single handler so the chain order is
+		// unambiguous. (Previously we used `GET("/login", RedirectIfAuthed)`
+		// + `.BindFunc(handleLoginGet)`, which made the handler chain
+		// [LoadAuthFromCookie, handleLoginGet, RedirectIfAuthed] and
+		// caused handleLoginGet to render before RedirectIfAuthed
+		// had a chance to short-circuit — which is fine in theory but
+		// didn't match what we saw in production. Merging keeps the
+		// routing layer simpler.)
+		se.Router.GET("/login", handleLoginGetWithRedirect)
 		se.Router.POST("/login", HandlePasswordLogin)
 		se.Router.POST("/logout", HandleLogout)
 
 		// Middleware: load auth from cookie on every request.
+		// Must be registered AFTER all routes so it applies to them
+		// (the PB Router adds group middleware to all routes registered
+		// AFTER the BindFunc call). We register it last so every route
+		// declared above picks it up.
 		se.Router.BindFunc(LoadAuthFromCookie)
 
 		return se.Next()
 	})
+}
+
+// handleLoginGetWithRedirect renders the login form unless the user is
+// already signed in, in which case it sends them to /. Folding the
+// redirect into the render handler keeps the route's middleware chain
+// flat (a single handler, no BindFunc composition), which avoids the
+// subtle ordering bug we hit when /login and /api/* kept returning 303.
+func handleLoginGetWithRedirect(e *core.RequestEvent) error {
+	if e.Auth != nil {
+		return e.Redirect(http.StatusSeeOther, "/")
+	}
+	errMsg := ""
+	if cookie, cookieErr := e.Request.Cookie(cookieName); cookieErr == nil && cookie.Value != "" {
+		// Re-prompt for the password only if the cookie is
+		// malformed, not when it's just an expired session.
+		if _, err := e.App.FindAuthRecordByToken(cookie.Value, core.TokenTypeAuth); err != nil {
+			errMsg = "Session expired. Please sign in again."
+		}
+	}
+	return renderLoginPageTo(e, errMsg)
 }
 
 // handleLoginGet renders the standalone login form. Kept tiny so the
