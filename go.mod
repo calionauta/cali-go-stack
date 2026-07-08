@@ -1,6 +1,6 @@
 module github.com/calionauta/gogogo-template
 
-go 1.26.1
+go 1.26.5
 
 tool github.com/a-h/templ/cmd/templ
 
