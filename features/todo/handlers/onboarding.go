@@ -16,6 +16,7 @@ import (
 	sdk "github.com/starfederation/datastar-go/datastar"
 
 	"github.com/calionauta/gogogo-fullstack-template/internal/datastar"
+	"github.com/calionauta/gogogo-fullstack-template/internal/nats"
 	"github.com/calionauta/gogogo-fullstack-template/internal/queue"
 	"github.com/calionauta/gogogo-fullstack-template/internal/workflow"
 )
@@ -26,11 +27,15 @@ import (
 // the main app DB from its durable steps.
 type PocketBaseTodoCreator struct {
 	app *pocketbase.PocketBase
+	// broadcaster lets the durable workflow notify realtime clients
+	// as each example todo is created, so the list grows live on every
+	// connected screen instead of only after a manual refresh.
+	broadcaster nats.TodoBroadcaster
 }
 
 // CreateExampleTodo inserts a new todo with the given title into the main
 // app's "todos" collection and returns its PocketBase-generated id.
-func (c *PocketBaseTodoCreator) CreateExampleTodo(ctx context.Context, title string) (string, error) {
+func (c *PocketBaseTodoCreator) CreateExampleTodo(ctx context.Context, title, user string) (string, error) {
 	col, err := c.app.FindCollectionByNameOrId("todos")
 	if err != nil {
 		return "", fmt.Errorf("find todos collection: %w", err)
@@ -38,8 +43,16 @@ func (c *PocketBaseTodoCreator) CreateExampleTodo(ctx context.Context, title str
 	rec := core.NewRecord(col)
 	rec.Set("title", title)
 	rec.Set("completed", false)
+	rec.Set("owner", user)
 	if err := c.app.Save(rec); err != nil {
 		return "", fmt.Errorf("save todo: %w", err)
+	}
+	// Notify all realtime clients that a new todo was created so the
+	// list updates live as the durable workflow progresses.
+	if c.broadcaster != nil {
+		if err := c.broadcaster.PublishTodoUpdate(ctx, todoUpdateJob("created", rec.Id, title, false)); err != nil {
+			slog.Warn("onboarding: broadcast todo created failed", "error", err)
+		}
 	}
 	return rec.Id, nil
 }
@@ -48,11 +61,17 @@ func (c *PocketBaseTodoCreator) CreateExampleTodo(ctx context.Context, title str
 // router and registers the PocketBase-backed TodoCreator so the workflow
 // can write to the main app DB. Build-tag gated: only compiled when the
 // binary is built with `-tags turbine`.
-func RegisterOnboardingRoutes(app *pocketbase.PocketBase, q *queue.Queue, rt *workflow.Runtime, r *router.Router[*core.RequestEvent]) {
-	workflow.RegisterTodoCreator(&PocketBaseTodoCreator{app: app})
+func RegisterOnboardingRoutes(
+	app *pocketbase.PocketBase,
+	q *queue.Queue,
+	rt *workflow.Runtime,
+	r *router.Router[*core.RequestEvent],
+	broadcaster nats.TodoBroadcaster,
+) {
+	workflow.RegisterTodoCreator(&PocketBaseTodoCreator{app: app, broadcaster: broadcaster})
 
 	if r != nil && rt != nil {
-		h := &OnboardingHandler{app: app, q: q, rt: rt}
+		h := &OnboardingHandler{app: app, q: q, rt: rt, broadcaster: broadcaster}
 		r.POST("/api/onboarding/start", h.handleStart)
 	}
 }
@@ -65,6 +84,9 @@ type OnboardingHandler struct {
 	app *pocketbase.PocketBase
 	q   *queue.Queue
 	rt  *workflow.Runtime
+	// broadcaster is used to refresh every client's list once the
+	// workflow finishes.
+	broadcaster nats.TodoBroadcaster
 }
 
 func (h *OnboardingHandler) handleStart(c *core.RequestEvent) error {
@@ -72,6 +94,13 @@ func (h *OnboardingHandler) handleStart(c *core.RequestEvent) error {
 		return c.String(http.StatusBadRequest, "invalid form")
 	}
 	user := c.Request.FormValue("user")
+	if user == "" && c.Auth != nil {
+		// Default to the authenticated user who clicked the button so the
+		// example todos are scoped to their tenant and actually appear
+		// in their list. The "user" form value (e.g. a scanned
+		// profile) still wins when present.
+		user = c.Auth.Id
+	}
 	if user == "" {
 		user = "friend"
 	}
@@ -92,6 +121,16 @@ func (h *OnboardingHandler) handleStart(c *core.RequestEvent) error {
 			if err == nil {
 				slog.Info("onboarding: workflow completed",
 					"user", user, "todos", len(result))
+				// Refresh every connected client's list now that the
+				// workflow has finished creating its example todos.
+				if h.broadcaster != nil {
+					if err := h.broadcaster.PublishTodoUpdate(
+						context.Background(),
+						todoUpdateJob("workflow-completed", "", "", false),
+					); err != nil {
+						slog.Warn("onboarding: broadcast workflow-completed failed", "error", err)
+					}
+				}
 				return
 			}
 			time.Sleep(200 * time.Millisecond)

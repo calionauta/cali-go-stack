@@ -25,7 +25,10 @@ func (h *TodoHandler) handleSSEStream(c *core.RequestEvent) error {
 	sse := sdk.NewSSE(c.Response, c.Request)
 	ch := make(chan []byte, sseClientBuffer)
 	h.q.Hub().Register(clientID, ch)
-	defer h.q.Hub().Unregister(clientID)
+	defer func() {
+		h.q.Hub().Unregister(clientID)
+		h.broadcastClientCount()
+	}()
 
 	todos, err := h.listTodos("all")
 	if err != nil {
@@ -33,12 +36,17 @@ func (h *TodoHandler) handleSSEStream(c *core.RequestEvent) error {
 		return c.String(statusInternal, "error listing todos")
 	}
 	if err := dshelpers.MergeSignals(sse, todo.Signals{
-		Todos: todos, Filter: "all", ItemCount: len(todos),
-		AdminEnabled: h.cfg.AdminToken != "",
-		LLMEnabled:   h.llmEnabled(),
+		Todos:            todos,
+		Filter:           "all",
+		ItemCount:        len(todos),
+		AdminEnabled:     h.cfg.AdminToken != "",
+		LLMEnabled:       h.llmEnabled(),
+		ConnectedClients: h.q.Hub().Stats().Clients,
 	}); err != nil {
 		return err
 	}
+	// Tell every connected client how many are online now.
+	h.broadcastClientCount()
 
 	for {
 		select {
@@ -79,6 +87,25 @@ func (h *TodoHandler) dispatchStreamMessage(sse *sdk.ServerSentEventGenerator, m
 		return dshelpers.MergeSignals(sse, map[string]any{
 			"lastRetry": string(job.Payload),
 		})
+	case "todo":
+		// A todo was created/updated/deleted (possibly by another
+		// client or the durable workflow). Re-render the list for
+		// THIS client so every screen stays in sync in real time.
+		todos, err := h.listTodos("all")
+		if err != nil {
+			return fmt.Errorf("list todos for broadcast: %w", err)
+		}
+		return dshelpers.RenderAndPatch(sse, h.renderTodoList(todos), sdk.WithSelector("#todo-list"))
+	case "clients":
+		var p struct {
+			Count int `json:"count"`
+		}
+		if err := json.Unmarshal(job.Payload, &p); err != nil {
+			return fmt.Errorf("decode clients payload: %w", err)
+		}
+		return dshelpers.MergeSignals(sse, map[string]any{
+			"connectedClients": p.Count,
+		})
 	default:
 		return dshelpers.MergeSignals(sse, map[string]any{
 			"lastJob": string(msg),
@@ -86,7 +113,14 @@ func (h *TodoHandler) dispatchStreamMessage(sse *sdk.ServerSentEventGenerator, m
 	}
 }
 
-// emitToast renders the Toast component and appends it to #toast-container
+// broadcastClientCount tells every connected client how many are
+// currently online. Called on connect + disconnect so the UI's
+// presence badge stays live.
+func (h *TodoHandler) broadcastClientCount() {
+	payload := mustJSON(map[string]any{"count": h.q.Hub().Stats().Clients})
+	h.q.Hub().Broadcast(mustJSON(queue.Job{Type: "clients", Payload: payload}))
+}
+
 // on the client. The toast's open state, dismiss timer, and progress bar
 // are all driven by Datastar attributes on the rendered template.
 func emitToast(sse *sdk.ServerSentEventGenerator, message, toastType string) error {

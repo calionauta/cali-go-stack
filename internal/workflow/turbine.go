@@ -24,7 +24,7 @@ import (
 // tests can inject a stub. The workflow runtime itself does not touch
 // the main app DB — it only persists its own step results.
 type TodoCreator interface {
-	CreateExampleTodo(ctx context.Context, title string) (id string, err error)
+	CreateExampleTodo(ctx context.Context, title, user string) (id string, err error)
 }
 
 var (
@@ -150,7 +150,7 @@ func WelcomeOnboarding(ctx turbine.Context, user string) ([]ExampleTodo, error) 
 			if c == nil {
 				return ExampleTodo{}, ErrTodoCreatorNotRegistered
 			}
-			id, err := c.CreateExampleTodo(ctx, title)
+			id, err := c.CreateExampleTodo(ctx, title, user)
 			if err != nil {
 				return ExampleTodo{}, fmt.Errorf("create example todo %q: %w", title, err)
 			}

@@ -21,10 +21,12 @@ func startTurbine(cfg *config.Config) {
 		ExecutorID: cfg.Workflow.ExecutorID,
 	}, nil)
 	if err != nil {
-		log.Fatalf("workflow init: %v", err)
+		log.Printf("WARN: workflow init failed, durable workflows disabled: %v", err)
+		return
 	}
 	if err := rt.Start(); err != nil {
-		log.Fatalf("workflow start: %v", err)
+		log.Printf("WARN: workflow start failed, durable workflows disabled: %v", err)
+		return
 	}
 	turbineRuntime = rt
 }

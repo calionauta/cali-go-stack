@@ -22,7 +22,7 @@ type stubCreator struct {
 	failOn map[string]error // title → error to return
 }
 
-func (s *stubCreator) CreateExampleTodo(_ context.Context, title string) (string, error) {
+func (s *stubCreator) CreateExampleTodo(_ context.Context, title, _ string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err, ok := s.failOn[title]; ok {

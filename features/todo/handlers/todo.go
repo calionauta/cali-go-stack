@@ -12,14 +12,18 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
+	"github.com/avast/retry-go/v4"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
+	sdk "github.com/starfederation/datastar-go/datastar"
 
 	"github.com/calionauta/gogogo-fullstack-template/config"
 	"github.com/calionauta/gogogo-fullstack-template/features/todo"
 	"github.com/calionauta/gogogo-fullstack-template/features/todo/components"
+	dshelpers "github.com/calionauta/gogogo-fullstack-template/internal/datastar"
 	"github.com/calionauta/gogogo-fullstack-template/internal/llm"
 	"github.com/calionauta/gogogo-fullstack-template/internal/nats"
 	"github.com/calionauta/gogogo-fullstack-template/internal/queue"
@@ -87,17 +91,10 @@ func (h *TodoHandler) broadcastTodo(c *core.RequestEvent, event string, item tod
 	if h.broadcaster == nil {
 		return
 	}
-	payload, err := json.Marshal(map[string]any{
-		"event": event,
-		"id":    item.ID,
-		"title": item.Title,
-		"done":  item.Completed,
-	})
-	if err != nil {
-		slog.Warn("todo: broadcast marshal failed", "error", err)
-		return
-	}
-	if err := h.broadcaster.PublishTodoUpdate(c.Request.Context(), payload); err != nil {
+	if err := h.broadcaster.PublishTodoUpdate(
+		c.Request.Context(),
+		todoUpdateJob(event, item.ID, item.Title, item.Completed),
+	); err != nil {
 		slog.Warn("todo: broadcast failed", "error", err)
 	}
 }
@@ -111,6 +108,7 @@ func (h *TodoHandler) RegisterRoutes(se *core.ServeEvent) {
 	se.Router.POST("/api/todos/completed/delete", h.handleClearCompleted)
 	se.Router.POST("/api/todos/{id}/delete", h.handleDelete)
 	se.Router.GET("/api/todos/stream", h.handleSSEStream)
+	se.Router.POST("/api/todos/retry-demo", h.handleEnqueueRetryDemo)
 	if h.cfg.AdminToken != "" {
 		se.Router.POST("/api/admin/unlock", h.handleAdminUnlock)
 	}
@@ -131,13 +129,21 @@ func (h *TodoHandler) handleIndex(c *core.RequestEvent) error {
 	if c.Auth != nil {
 		userEmail = c.Auth.Email()
 	}
+	todos, err := h.listTodos("all")
+	if err != nil {
+		slog.Warn("todo: list on index failed", "error", err)
+		todos = nil
+	}
 	signals := todo.Signals{
-		Filter:       "all",
-		ItemCount:    0,
-		AdminEnabled: h.cfg.AdminToken != "",
-		LLMEnabled:   h.llmEnabled(),
-		Suggestions:  []string{},
-		SuggestErr:   "",
+		Todos:            todos,
+		Filter:           "all",
+		ItemCount:        len(todos),
+		AdminEnabled:     h.cfg.AdminToken != "",
+		LLMEnabled:       h.llmEnabled(),
+		WorkflowEnabled:  h.cfg.Workflow.Enabled,
+		ConnectedClients: h.q.Hub().Stats().Clients,
+		Suggestions:      []string{},
+		SuggestErr:       "",
 	}
 	c.Response.Header().Set("Content-Type", "text/html; charset=utf-8")
 	return components.Layout(
@@ -157,6 +163,7 @@ func (h *TodoHandler) RegisterRoutesOn(r *router.Router[*core.RequestEvent]) {
 	r.POST("/api/todos/completed/delete", h.handleClearCompleted)
 	r.POST("/api/todos/{id}/delete", h.handleDelete)
 	r.GET("/api/todos/stream", h.handleSSEStream)
+	r.POST("/api/todos/retry-demo", h.handleEnqueueRetryDemo)
 	if h.cfg.AdminToken != "" {
 		r.POST("/api/admin/unlock", h.handleAdminUnlock)
 	}
@@ -170,6 +177,7 @@ func (h *TodoHandler) RegisterRoutesOn(r *router.Router[*core.RequestEvent]) {
 // dispatches incoming "todo_created" messages to the toast streamer.
 func (h *TodoHandler) RegisterHandlers(reg *queue.HandlerRegistry) {
 	reg.Register("todo_created", h.handleTodoCreatedJob)
+	reg.Register("retry_demo", h.handleRetryDemoJob)
 }
 
 // handleTodoCreatedJob is the worker-side handler invoked when a
@@ -206,4 +214,107 @@ func (h *TodoHandler) handleTodoCreatedJob(ctx context.Context, hub *queue.SSEHu
 	}
 	hub.Broadcast(chunk)
 	return nil
+}
+
+// handleEnqueueRetryDemo enqueues a "retry_demo" background job so the
+// worker pool can exercise the queue + retry layer end-to-end. The job
+// deliberately fails twice then succeeds, streaming per-attempt feedback
+// to every connected client (see handleRetryDemoJob). Triggered from the
+// Techstack/Diagnostics panel in the UI.
+func (h *TodoHandler) handleEnqueueRetryDemo(c *core.RequestEvent) error {
+	if err := h.q.Enqueue(c.Request.Context(), mustJSON(queue.Job{Type: "retry_demo"})); err != nil {
+		return c.String(statusInternal, "enqueue failed")
+	}
+	sse := sdk.NewSSE(c.Response, c.Request)
+	return dshelpers.MergeSignals(sse, map[string]any{
+		"lastRetry": "queued retry-demo job",
+	})
+}
+
+// handleRetryDemoJob is the worker-side handler for "retry_demo" jobs. It
+// runs a 3-attempt operation that fails on the first two attempts to make
+// the retry layer (exponential backoff + SSE feedback) visible: each
+// attempt's status is broadcast to every connected client, and a final
+// toast reports success. This is the canonical demonstration of the
+// queue-with-retry techstack slice.
+const retryDemoInitialDelay = 600 * time.Millisecond
+
+func (h *TodoHandler) handleRetryDemoJob(ctx context.Context, hub *queue.SSEHub, _ queue.Job) error {
+	const maxAttempts = 3
+	attempt := 0
+	err := retry.Do(
+		func() error {
+			attempt++
+			// Deliberately fail the first two attempts to demonstrate
+			// the retry layer; succeed on the final attempt.
+			var opErr error
+			if attempt < maxAttempts {
+				opErr = fmt.Errorf("simulated transient failure on attempt %d", attempt)
+			}
+			h.broadcastRetryFeedback(hub, attempt, opErr)
+			return opErr
+		},
+		retry.Attempts(maxAttempts),
+		retry.Delay(retryDemoInitialDelay),
+		retry.MaxDelay(2*time.Second),
+		retry.Context(ctx),
+	)
+	if err != nil {
+		hub.Broadcast(toastJob("Queue + retry demo failed", "error"))
+		return err
+	}
+	hub.Broadcast(toastJob("Queue + retry OK — 3 attempts", "success"))
+	return nil
+}
+
+func (h *TodoHandler) broadcastRetryFeedback(hub *queue.SSEHub, attempt int, opErr error) {
+	status := "attempt"
+	if opErr == nil {
+		status = "success"
+	}
+	payload := mustJSON(map[string]any{
+		"operation": "retry-demo",
+		"attempt":   attempt,
+		"status":    status,
+		"error":     errMsg(opErr),
+	})
+	hub.Broadcast(mustJSON(queue.Job{Type: "retry", Payload: payload}))
+}
+
+// todoUpdateJob builds the queue.Job envelope broadcast for a todo
+// mutation. Both the HTTP handlers (broadcastTodo) and the durable
+// workflow creator (PocketBaseTodoCreator) use it so every connected
+// client re-renders its list on any change.
+func todoUpdateJob(event, id, title string, done bool) []byte {
+	ev := mustJSON(map[string]any{
+		"event": event,
+		"id":    id,
+		"title": title,
+		"done":  done,
+	})
+	j := mustJSON(queue.Job{Type: "todo", Payload: ev})
+	return j
+}
+
+// toastJob builds a "toast" queue.Job envelope for hub.Broadcast.
+func toastJob(message, kind string) []byte {
+	p := mustJSON(map[string]string{"toastType": kind, "message": message})
+	j := mustJSON(queue.Job{Type: "toast", Payload: p})
+	return j
+}
+
+func errMsg(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func mustJSON(v any) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		slog.Warn("todo: marshal job", "error", err)
+		return nil
+	}
+	return b
 }

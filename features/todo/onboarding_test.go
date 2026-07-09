@@ -16,6 +16,7 @@ import (
 
 	"github.com/calionauta/gogogo-fullstack-template/config"
 	"github.com/calionauta/gogogo-fullstack-template/features/todo/handlers"
+	"github.com/calionauta/gogogo-fullstack-template/internal/nats"
 	"github.com/calionauta/gogogo-fullstack-template/internal/queue"
 	"github.com/calionauta/gogogo-fullstack-template/internal/workflow"
 
@@ -71,10 +72,10 @@ func turbineFixture(t *testing.T) (string, *pocketbase.PocketBase, func()) {
 		os.RemoveAll(tmpDir)
 		t.Fatalf("workflow.New: %v", err)
 	}
-	if err := rt.Start(); err != nil {
+	if startErr := rt.Start(); startErr != nil {
 		mustReset(t, app)
 		os.RemoveAll(tmpDir)
-		t.Fatalf("workflow.Start: %v", err)
+		t.Fatalf("workflow.Start: %v", startErr)
 	}
 
 	h := handlers.New(app, q, cfg)
@@ -84,7 +85,7 @@ func turbineFixture(t *testing.T) (string, *pocketbase.PocketBase, func()) {
 	r := router.NewRouter[*core.RequestEvent](newRequestEventFactory(app))
 	h.RegisterRoutesOn(r)
 	// Wire the Turbine-gated onboarding routes the same way router.Init does.
-	handlers.RegisterOnboardingRoutes(app, q, rt, r)
+	handlers.RegisterOnboardingRoutes(app, q, rt, r, nats.NewInMemoryBroadcaster(q.Hub()))
 
 	mux, err := r.BuildMux()
 	if err != nil {

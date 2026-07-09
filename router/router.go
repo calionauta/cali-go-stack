@@ -109,7 +109,7 @@ func Init(
 		// Onboarding workflow routes are wired here when Turbine is
 		// enabled. The handler reads the concrete *workflow.Runtime via
 		// RegisterOnboardingRoutes' build-tag switch.
-		registerOnboarding(app, q, se, workflowRt)
+		registerOnboarding(app, q, se, workflowRt, newTodoBroadcaster(q.Hub()))
 
 		return se.Next()
 	})

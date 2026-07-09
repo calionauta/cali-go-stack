@@ -37,4 +37,14 @@ type Signals struct {
 	// SuggestErr surfaces a human-readable error from the LLM
 	// provider (without leaking internals). Empty on success.
 	SuggestErr string `json:"suggestErr"`
+
+	// ConnectedClients is the number of browser tabs/clients currently
+	// connected to the SSE stream. Streamed on connect and on every
+	// connect/disconnect so the UI can show realtime presence.
+	ConnectedClients int `json:"connectedClients"`
+
+	// WorkflowEnabled reflects whether the binary was built with
+	// -tags turbine AND started with WORKFLOW_ENABLED=true. When true,
+	// the UI renders the "Run durable workflow" button.
+	WorkflowEnabled bool `json:"workflowEnabled"`
 }

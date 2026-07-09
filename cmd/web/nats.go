@@ -14,6 +14,11 @@ func startNATS(cfg *config.Config) {
 		return
 	}
 	if err := nats.StartEmbedded(cfg.NATS.StoreDir); err != nil {
-		log.Fatalf("NATS startup: %v", err)
+		// Don't take the whole app down if embedded NATS can't start
+		// (e.g. a read-only or full store dir). Fall back to the
+		// in-memory broadcaster so realtime still works within the
+		// instance.
+		log.Printf("WARN: NATS startup failed, falling back to in-memory broadcaster: %v", err)
+		return
 	}
 }

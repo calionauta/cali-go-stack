@@ -15,7 +15,7 @@ func marshalSignals(s todo.Signals) string {
 
 templ TodoList(signals todo.Signals) {
 	<div class="max-w-2xl mx-auto mt-8 px-4 animate-in fade-in zoom-in-95 animate-duration-500">
-		<div class="card bg-base-100 shadow-xl" data-signals={ marshalSignals(signals) }>
+		<div class="card bg-base-100 shadow-xl" data-signals={ marshalSignals(signals) } data-on-load={ "@get('/api/todos/stream')" }>
 			<div class="card-body">
 				<h2 class="card-title text-2xl mb-4">
 					<svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7 text-primary" viewBox="0 0 20 20" fill="currentColor">
@@ -87,6 +87,8 @@ templ TodoList(signals todo.Signals) {
 				if signals.AdminEnabled {
 					@adminUnlockForm()
 				}
+
+				@TechstackPanel(signals)
 			</div>
 		</div>
 
@@ -119,6 +121,42 @@ templ renderTab(label, value, current, endpoint string) {
 	>
 		{ label }
 	</a>
+}
+
+// TechstackPanel is a collapsible diagnostics section that lets a
+// developer exercise and observe each layer of the stack from the todo
+// UI:
+//   - Realtime: NATS JetStream presence (connected client count).
+//   - Queue + retry: enqueues a retry_demo job that fails twice then
+//     succeeds, streaming per-attempt feedback to every client.
+//   - Durable workflow: fires the Turbine WelcomeOnboarding workflow
+//     (only when the binary is built with -tags turbine and
+//     WORKFLOW_ENABLED=true).
+templ TechstackPanel(signals todo.Signals) {
+	<details class="mt-4 pt-4 border-t border-base-200 text-sm">
+		<summary class="cursor-pointer font-semibold select-none">Techstack & Diagnostics</summary>
+		<div class="flex flex-col gap-3 mt-3">
+			<div class="flex items-center gap-2 flex-wrap">
+				<span class="badge badge-sm badge-primary">Realtime</span>
+				<span class="opacity-70">NATS JetStream — every mutation broadcasts to all clients.</span>
+				<span class="badge badge-sm" data-text="$connectedClients + ' online'"></span>
+			</div>
+			<div class="flex items-center gap-2 flex-wrap">
+				<button class="btn btn-sm btn-outline" data-on:click={ "@post('/api/todos/retry-demo')" }>
+					Test queue + retry
+				</button>
+				<span class="text-xs opacity-60 font-mono" data-text="$lastRetry"></span>
+			</div>
+			if signals.WorkflowEnabled {
+				<div class="flex items-center gap-2 flex-wrap">
+					<button class="btn btn-sm btn-outline" data-on:click={ "@post('/api/onboarding/start')" }>
+						Run durable workflow (Turbine)
+					</button>
+					<span class="text-xs opacity-60">Creates example todos via a durable workflow; survives restarts.</span>
+				</div>
+			}
+		</div>
+	</details>
 }
 
 // adminUnlockForm renders the master-password form. Only mounted when
