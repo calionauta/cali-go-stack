@@ -68,6 +68,166 @@ func (h *TodoHandler) handleSSEStream(c *core.RequestEvent) error {
 // rendered as a Templ component, type "retry" is merged as a signal so
 // the user sees per-attempt feedback, anything else is forwarded as a
 // raw signal (defensive default).
+// stream dispatchers split per case to keep cyclomatic complexity low.
+// Each helper handles a single job.Type and is called from the small
+// switch in dispatchStreamMessage.
+
+const (
+	retryStatusSuccess = "success"
+	retryStatusAttempt = "attempt"
+)
+
+func (h *TodoHandler) streamToast(sse *sdk.ServerSentEventGenerator, payload []byte) error {
+	var p struct {
+		ToastType string `json:"toastType"`
+		Message   string `json:"message"`
+	}
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return fmt.Errorf("decode toast payload: %w", err)
+	}
+	if p.ToastType == "" {
+		p.ToastType = "info"
+	}
+	return emitToast(sse, p.Message, p.ToastType)
+}
+
+func (h *TodoHandler) streamRetry(sse *sdk.ServerSentEventGenerator, payload []byte) error {
+	var p struct {
+		Operation string `json:"operation"`
+		Attempt   int    `json:"attempt"`
+		Status    string `json:"status"`
+		Error     string `json:"error"`
+	}
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return fmt.Errorf("decode retry payload: %w", err)
+	}
+	// Merge both the raw JSON (signal marker for data-text) and the
+	// structured fields so the AI-suggest queue panel can drive pill
+	// transitions via boolean signals.
+	if err := dshelpers.MergeSignals(sse, map[string]any{
+		"lastRetry":          string(payload),
+		"lastRetryOperation": p.Operation,
+		"lastRetryStatus":    p.Status,
+		"lastRetryAttempt":   p.Attempt,
+	}); err != nil {
+		return err
+	}
+	verb := p.Operation
+	if verb == "suggest_simulated" {
+		verb = "suggest (simulated)"
+	}
+	var msg, kind string
+	switch p.Status {
+	case retryStatusSuccess:
+		msg, kind = fmt.Sprintf("%s: completed", verb), retryStatusSuccess
+	default: // retryStatusAttempt
+		msg = fmt.Sprintf("%s: attempt %d failed", verb, p.Attempt)
+		if p.Error != "" {
+			msg += " (" + p.Error + ")"
+		}
+		msg += ", retrying…"
+		kind = "warning"
+	}
+	return emitToast(sse, msg, kind)
+}
+
+func (h *TodoHandler) streamTodo(c *core.RequestEvent, sse *sdk.ServerSentEventGenerator, payload []byte) error {
+	// The durable workflow also emits a synthetic todo update of type
+	// "workflow-completed" once all five steps finish — that acts as
+	// the completion signal for the UI.
+	var tp struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(payload, &tp); err == nil && tp.Type == "workflow-completed" {
+		if err := dshelpers.MergeSignals(sse, map[string]any{
+			"onboardingActive":  true,
+			"onboardingPhase":   "completed",
+			"workflowCompleted": true,
+		}); err != nil {
+			return err
+		}
+		return emitToast(sse, "Workflow completed — 3 example todos created", retryStatusSuccess)
+	}
+	todos, err := h.listTodos(c, "all")
+	if err != nil {
+		return fmt.Errorf("list todos for broadcast: %w", err)
+	}
+	// Tag the incoming mutation as "remote" (it arrived via the
+	// broadcaster, so for THIS client it came from someone else).
+	// The TodoItem template reads this via data-source to pick the
+	// remote entry animation (left-slide + info pulse) vs the self
+	// one. View transitions give a free cross-fade.
+	if err := dshelpers.MergeSignals(sse, map[string]any{"lastItemSource": "remote"}); err != nil {
+		return err
+	}
+	return dshelpers.RenderAndPatch(sse, h.renderTodoList(todos),
+		sdk.WithSelector("#todo-list"),
+		sdk.WithViewTransitions())
+}
+
+func (h *TodoHandler) streamClients(sse *sdk.ServerSentEventGenerator, payload []byte) error {
+	var p struct {
+		Count int `json:"count"`
+	}
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return fmt.Errorf("decode clients payload: %w", err)
+	}
+	return dshelpers.MergeSignals(sse, map[string]any{
+		"connectedClients": p.Count,
+	})
+}
+
+func (h *TodoHandler) streamSuggestResult(sse *sdk.ServerSentEventGenerator, payload []byte) error {
+	var p struct {
+		Suggestions    []string `json:"suggestions"`
+		SuggestErr     string   `json:"suggestErr"`
+		SuggestPending bool     `json:"suggestPending"`
+	}
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return fmt.Errorf("decode suggest_result payload: %w", err)
+	}
+	if err := dshelpers.MergeSignals(sse, map[string]any{
+		"suggestions":    p.Suggestions,
+		"suggestErr":     p.SuggestErr,
+		"suggestPending": p.SuggestPending,
+	}); err != nil {
+		return err
+	}
+	if p.SuggestErr != "" {
+		return emitToast(sse, "Suggest failed: "+p.SuggestErr, "error")
+	}
+	return emitToast(sse, fmt.Sprintf("Got %d suggestions", len(p.Suggestions)), retryStatusSuccess)
+}
+
+func (h *TodoHandler) streamProgress(sse *sdk.ServerSentEventGenerator, payload []byte) error {
+	// Durable-workflow progress (Turbine). Streamed as each step
+	// completes so the UI can render a live stepper and the user can
+	// watch the workflow advance. Merged as signals and echoed as a
+	// toast so the progression is both visible and narrated.
+	var p struct {
+		Step   int    `json:"step"`
+		Total  int    `json:"total"`
+		Phase  string `json:"phase"`
+		Detail string `json:"detail"`
+	}
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return fmt.Errorf("decode progress payload: %w", err)
+	}
+	if err := dshelpers.MergeSignals(sse, map[string]any{
+		"onboardingActive": true,
+		"onboardingStep":   p.Step,
+		"onboardingTotal":  p.Total,
+		"onboardingPhase":  p.Phase,
+		"onboardingDetail": p.Detail,
+	}); err != nil {
+		return err
+	}
+	return emitToast(sse, p.Detail, "info")
+}
+
+// dispatchStreamMessage routes a single SSE envelope to the matching
+// per-type helper. Kept small (one switch) so each branch's
+// cyclomatic complexity is isolated and testable.
 func (h *TodoHandler) dispatchStreamMessage(c *core.RequestEvent, sse *sdk.ServerSentEventGenerator, msg []byte) error {
 	var job queue.Job
 	if err := json.Unmarshal(msg, &job); err != nil {
@@ -75,153 +235,17 @@ func (h *TodoHandler) dispatchStreamMessage(c *core.RequestEvent, sse *sdk.Serve
 	}
 	switch job.Type {
 	case jobTypeToast:
-		var p struct {
-			ToastType string `json:"toastType"`
-			Message   string `json:"message"`
-		}
-		if err := json.Unmarshal(job.Payload, &p); err != nil {
-			return fmt.Errorf("decode toast payload: %w", err)
-		}
-		if p.ToastType == "" {
-			p.ToastType = "info"
-		}
-		return emitToast(sse, p.Message, p.ToastType)
+		return h.streamToast(sse, job.Payload)
 	case "retry":
-		// Retry feedback from the queue worker. Merge the raw payload
-		// (so the UI can read operation/attempt/status) and emit a
-		// friendly narration toast so queued work is observable end to
-		// end - especially the Suggest async lifecycle.
-		var p struct {
-			Operation string `json:"operation"`
-			Attempt   int    `json:"attempt"`
-			Status    string `json:"status"`
-			Error     string `json:"error"`
-		}
-		if err := json.Unmarshal(job.Payload, &p); err != nil {
-			return fmt.Errorf("decode retry payload: %w", err)
-		}
-		// Merge both the raw JSON (used as a backwards-compatible
-		// signal-marker for `data-text` displays) and the structured
-		// fields, so the AI-suggest queue panel can drive pill
-		// transitions via boolean signals instead of string matching.
-		if err := dshelpers.MergeSignals(sse, map[string]any{
-			"lastRetry":          string(job.Payload),
-			"lastRetryOperation": p.Operation,
-			"lastRetryStatus":    p.Status,
-			"lastRetryAttempt":   p.Attempt,
-		}); err != nil {
-			return err
-		}
-		verb := p.Operation
-		if verb == "suggest_simulated" {
-			verb = "suggest (simulated)"
-		}
-		var msg, kind string
-		switch p.Status {
-		case "success":
-			msg, kind = fmt.Sprintf("%s: completed", verb), "success"
-		default: // "attempt"
-			msg = fmt.Sprintf("%s: attempt %d failed", verb, p.Attempt)
-			if p.Error != "" {
-				msg += " (" + p.Error + ")"
-			}
-			msg += ", retrying…"
-			kind = "warning"
-		}
-		return emitToast(sse, msg, kind)
+		return h.streamRetry(sse, job.Payload)
 	case "todo":
-		// A todo was created/updated/deleted (possibly by another
-		// client or the durable workflow). Re-render the list for
-		// THIS client so every screen stays in sync in real time.
-		//
-		// The durable workflow also emits a synthetic todo update of
-		// type "workflow-completed" once all five steps finish. That
-		// acts as the completion signal so the UI can show a final
-		// alert (the stepper reaching 5/5 + the list growing live).
-		var tp struct {
-			Type string `json:"type"`
-		}
-		if err := json.Unmarshal(job.Payload, &tp); err == nil && tp.Type == "workflow-completed" {
-			if err := dshelpers.MergeSignals(sse, map[string]any{
-				"onboardingActive":  true,
-				"onboardingPhase":   "completed",
-				"workflowCompleted": true,
-			}); err != nil {
-				return err
-			}
-			return emitToast(sse, "Workflow completed — 3 example todos created", "success")
-		}
-		todos, err := h.listTodos(c, "all")
-		if err != nil {
-			return fmt.Errorf("list todos for broadcast: %w", err)
-		}
-		// Tag the incoming mutation as "remote" (it arrived via the
-		// broadcaster, so for THIS client it came from someone else).
-		// The TodoItem template reads this via data-source to pick the
-		// remote entry animation (left-slide + info pulse) vs the
-		// self one used when the originating HTTP response patched the
-		// list.
-		_ = dshelpers.MergeSignals(sse, map[string]any{"lastItemSource": "remote"})
-		return dshelpers.RenderAndPatch(sse, h.renderTodoList(todos), sdk.WithSelector("#todo-list"), sdk.WithViewTransitions())
+		return h.streamTodo(c, sse, job.Payload)
 	case "clients":
-		var p struct {
-			Count int `json:"count"`
-		}
-		if err := json.Unmarshal(job.Payload, &p); err != nil {
-			return fmt.Errorf("decode clients payload: %w", err)
-		}
-		return dshelpers.MergeSignals(sse, map[string]any{
-			"connectedClients": p.Count,
-		})
+		return h.streamClients(sse, job.Payload)
 	case "suggest_result":
-		// AI suggest result from the queue worker: merge the suggestions
-		// (or error) into signals and narrate the outcome with a toast.
-		var p struct {
-			Suggestions    []string `json:"suggestions"`
-			SuggestErr     string   `json:"suggestErr"`
-			SuggestPending bool     `json:"suggestPending"`
-		}
-		if err := json.Unmarshal(job.Payload, &p); err != nil {
-			return fmt.Errorf("decode suggest_result payload: %w", err)
-		}
-		if err := dshelpers.MergeSignals(sse, map[string]any{
-			"suggestions":    p.Suggestions,
-			"suggestErr":     p.SuggestErr,
-			"suggestPending": p.SuggestPending,
-		}); err != nil {
-			return err
-		}
-		if p.SuggestErr != "" {
-			return emitToast(sse, "Suggest failed: "+p.SuggestErr, "error")
-		}
-		return emitToast(sse, fmt.Sprintf("Got %d suggestions", len(p.Suggestions)), "success")
-
+		return h.streamSuggestResult(sse, job.Payload)
 	case "progress":
-		// Durable-workflow progress (Turbine). Streamed as each step
-		// completes so the UI can render a live stepper and the user
-		// can watch the workflow advance — and, because the steps are
-		// durable, see it resume after a restart. Merged as signals and
-		// echoed as a toast so the progression is both visible and
-		// narrated.
-		var p struct {
-			Step   int    `json:"step"`
-			Total  int    `json:"total"`
-			Phase  string `json:"phase"`
-			Detail string `json:"detail"`
-		}
-		if err := json.Unmarshal(job.Payload, &p); err != nil {
-			return fmt.Errorf("decode progress payload: %w", err)
-		}
-		if err := dshelpers.MergeSignals(sse, map[string]any{
-			"onboardingActive": true,
-			"onboardingStep":   p.Step,
-			"onboardingTotal":  p.Total,
-			"onboardingPhase":  p.Phase,
-			"onboardingDetail": p.Detail,
-		}); err != nil {
-			return err
-		}
-		return emitToast(sse, p.Detail, "info")
+		return h.streamProgress(sse, job.Payload)
 	default:
 		return dshelpers.MergeSignals(sse, map[string]any{
 			"lastJob": string(msg),

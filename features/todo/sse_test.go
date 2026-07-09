@@ -9,11 +9,6 @@ import (
 	"time"
 )
 
-// sseTestTimeout caps how long any individual SSE-driven test waits for
-// the worker pool to deliver. Generous enough to absorb CI noise without
-// flaking local runs.
-const sseTestTimeout = 5 * time.Second
-
 // sseBufferSize is the read buffer for the SSE stream pump. Matches the
 // goqite channel buffer so each Read pulls at most one full event.
 const sseBufferSize = 4096
@@ -102,14 +97,6 @@ func extractJSONString(s string) (string, bool) {
 }
 
 // openSSE opens the SSE stream with a fresh context derived from the
-// provided timeout. Used by tests that don't need to share the context.
-func openSSE(t *testing.T, base, clientID string, timeout time.Duration) *http.Response {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	t.Cleanup(cancel)
-	return openSSEWithCtx(ctx, t, base, clientID)
-}
-
 // openSSEWithCtx opens the SSE stream under the provided context. Used
 // when the caller needs to share the context across multiple calls.
 func openSSEWithCtx(ctx context.Context, t *testing.T, base, clientID string) *http.Response {
@@ -127,15 +114,6 @@ func openSSEWithCtx(ctx context.Context, t *testing.T, base, clientID string) *h
 		t.Fatalf("SSE status=%d", resp.StatusCode)
 	}
 	return resp
-}
-
-// pumpSSE reads from the SSE stream until the predicate returns true
-// or the timeout expires. Returns everything accumulated.
-func pumpSSE(t *testing.T, stream *http.Response, timeout time.Duration, mustContain string) string {
-	t.Helper()
-	return pumpSSEUntil(t, stream, timeout, func(s string) bool {
-		return strings.Contains(s, mustContain)
-	})
 }
 
 // pumpSSEUntil reads the SSE stream until the predicate returns true

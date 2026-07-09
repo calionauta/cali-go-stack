@@ -189,32 +189,69 @@ func New(t *testing.T, opts ...Option) *FakeServer {
 	return s
 }
 
-// handle is the single endpoint the GoAI compat provider hits.
+// handle is the single endpoint the GoAI compat provider hits. Each
+// step is split into a small helper so this function (and each
+// helper) stays under the gocyclo threshold.
 func (s *FakeServer) handle(w http.ResponseWriter, r *http.Request) {
 	n := s.callCount.Add(1)
 
-	// 1. Auth check (only when keys are configured).
-	if len(s.opts.acceptKeys) > 0 {
-		auth := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !s.opts.acceptKeys[auth] {
-			// Auth rejection is expected behavior (the test deliberately
-			// sends a wrong key to exercise the 401 path); log, don't fail.
-			if s.t != nil {
-				s.t.Logf("fake: call %d rejected: bad/unknown API key %q", n, auth)
-			}
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+	if !s.authorize(r, n) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	req, ok := s.decodeRequest(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.writeStatusOrSuccess(w, n) {
+		return
+	}
+
+	// Optional latency before responding.
+	if s.opts.responseDelay > 0 {
+		select {
+		case <-r.Context().Done():
 			return
+		case <-time.After(s.opts.responseDelay):
 		}
 	}
 
-	// 2. Decode body.
+	if req.Stream {
+		s.streamResponse(w, req)
+		return
+	}
+	s.singleResponse(w, req)
+}
+
+// authorize returns false (and logs) when the request has an API key
+// but the fake's acceptKeys map doesn't include it. When no keys are
+// configured, all requests are accepted.
+func (s *FakeServer) authorize(r *http.Request, n int64) bool {
+	if len(s.opts.acceptKeys) == 0 {
+		return true
+	}
+	auth := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if s.opts.acceptKeys[auth] {
+		return true
+	}
+	if s.t != nil {
+		s.t.Logf("fake: call %d rejected: bad/unknown API key %q", n, auth)
+	}
+	return false
+}
+
+// decodeRequest reads + JSON-decodes the request body. On error it
+// writes a 400 and returns ok=false so the caller can early-return.
+func (s *FakeServer) decodeRequest(w http.ResponseWriter, r *http.Request) (openAIRequest, bool) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		if s.t != nil {
 			s.t.Errorf("fake: read body: %v", err)
 		}
 		http.Error(w, "bad request", http.StatusBadRequest)
-		return
+		return openAIRequest{}, false
 	}
 	var req openAIRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -222,39 +259,28 @@ func (s *FakeServer) handle(w http.ResponseWriter, r *http.Request) {
 			s.t.Errorf("fake: decode request: %v", err)
 		}
 		http.Error(w, "bad request", http.StatusBadRequest)
-		return
+		return openAIRequest{}, false
 	}
+	return req, true
+}
 
-	// 3. Status code (configurable for retry tests).
+// writeStatusOrSuccess picks the next status from the configured
+// sequence and writes a minimal error body for non-200 responses.
+// Returns false when a non-200 was written so the caller does not
+// continue into the success path.
+func (s *FakeServer) writeStatusOrSuccess(w http.ResponseWriter, n int64) bool {
 	status := http.StatusOK
 	if i := int(n) - 1; i < len(s.opts.statusSequence) {
 		status = s.opts.statusSequence[i]
 	}
-	if status != http.StatusOK {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		// minimal error body so GoAI parses it without crashing
-		body := `{"error":{"message":"forced "` + fmt.Sprint(status) + `","type":"server_error"}}`
-		_, _ = io.WriteString(w, body) //nolint:errcheck
-		return
+	if status == http.StatusOK {
+		return true
 	}
-
-	// 4. Optional latency before responding.
-	if s.opts.responseDelay > 0 {
-		select {
-		case <-r.Context().Done():
-			// client cancelled; nothing to do
-			return
-		case <-time.After(s.opts.responseDelay):
-		}
-	}
-
-	// 5. Streaming or non-streaming response.
-	if req.Stream {
-		s.streamResponse(w, req)
-		return
-	}
-	s.singleResponse(w, req)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	body := `{"error":{"message":"forced "` + fmt.Sprint(status) + `","type":"server_error"}}`
+	_, _ = io.WriteString(w, body) //nolint:errcheck
+	return false
 }
 
 // singleResponse writes the canned non-streaming reply.

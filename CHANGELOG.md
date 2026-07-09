@@ -2,6 +2,14 @@
 
 All notable changes to this template are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] - 2026-07-09
+
+### Fixed
+- **Quality gate green.** Resolved every `make check` issue so the gate is back to fully passing:
+  - **datastar-lint**: `data-on-load` → `data-on:load` (the correct colon-separated event syntax).
+  - **golangci-lint (15 issues)**: 5× lll + 3× errcheck in `todo_crud.go` / `todo_sse.go` (refactored into a `patchTodoListWithSelfOrigin` helper to keep `RenderAndPatch` calls under the 120-char line limit and to actually check the `MergeSignals` error); 1× goconst + 1× gocyclo(25) in `todo_sse.go` (split the dispatcher into per-type `streamToast`/`streamRetry`/`streamTodo`/`streamClients`/`streamSuggestResult`/`streamProgress` helpers + local `retryStatusSuccess`/`retryStatusAttempt` constants); 1× gocyclo(14) in `fakeserver.handle` (split into `authorize`/`decodeRequest`/`writeStatusOrSuccess` helpers); 1× mnd in `goai.NewSimulated` (extracted `simulatedResponseDelay` const); 3× unused in `sse_test.go` (deleted `sseTestTimeout`, `openSSE`, `pumpSSE`).
+- **Vendored `app.min.css`** rebuilt to include the v0.6.0 Tailwind/DaisyUI classes (`todo-item` variants, `progress progress-primary`, `skeleton`, `loading-dots`, `view-transition-name`, `oklch` tint variables, etc.) so the page actually loads the new styles at runtime.
+
 ## [0.6.0] - 2026-07-09
 
 ### Added

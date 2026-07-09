@@ -94,6 +94,13 @@ func New(apiKey string) *Client {
 	}
 }
 
+// simulatedResponseDelay is the deliberate per-call delay the in-process
+// fake LLM adds to the second (successful) request. Long enough for
+// the user to see the "got 3 suggestions" toast arrive AFTER the
+// "attempt failed, retrying…" toast in the demo; short enough that
+// the demo doesn't drag.
+const simulatedResponseDelay = 1500 * time.Millisecond
+
 // NewSimulated returns a Client wired to an in-process fake LLM server
 // that scripts error → retry → slow response, so the queue + retry demo
 // works without a real API key. The fake returns a 500 on the first call
@@ -106,7 +113,7 @@ func New(apiKey string) *Client {
 func NewSimulated() *Client {
 	srv := fakeserver.NewServer(
 		fakeserver.WithStatusSequence(500, 200),
-		fakeserver.WithResponseDelay(1500*time.Millisecond),
+		fakeserver.WithResponseDelay(simulatedResponseDelay),
 		fakeserver.WithResponse(`["Review the pull request","Write the meeting notes","Ping the on-call engineer"]`),
 	)
 	return &Client{
