@@ -71,7 +71,7 @@ func (h *TodoHandler) dispatchStreamMessage(sse *sdk.ServerSentEventGenerator, m
 		return fmt.Errorf("decode stream envelope: %w", err)
 	}
 	switch job.Type {
-	case "toast":
+	case jobTypeToast:
 		var p struct {
 			ToastType string `json:"toastType"`
 			Message   string `json:"message"`

@@ -204,7 +204,7 @@ func (h *TodoHandler) handleTodoCreatedJob(ctx context.Context, hub *queue.SSEHu
 	if err != nil {
 		return fmt.Errorf("marshal toast payload: %w", err)
 	}
-	envelope := queue.Job{Type: "toast", Payload: toastPayload}
+	envelope := queue.Job{Type: jobTypeToast, Payload: toastPayload}
 	chunk, err := json.Marshal(envelope)
 	if err != nil {
 		return fmt.Errorf("marshal toast envelope: %w", err)
@@ -238,6 +238,10 @@ func (h *TodoHandler) handleEnqueueRetryDemo(c *core.RequestEvent) error {
 // toast reports success. This is the canonical demonstration of the
 // queue-with-retry techstack slice.
 const retryDemoInitialDelay = 600 * time.Millisecond
+
+// jobTypeToast is the queue.Job type for toast notifications so
+// the literal isn't duplicated across handlers (goconst).
+const jobTypeToast = "toast"
 
 func (h *TodoHandler) handleRetryDemoJob(ctx context.Context, hub *queue.SSEHub, _ queue.Job) error {
 	const maxAttempts = 3
@@ -299,7 +303,7 @@ func todoUpdateJob(event, id, title string, done bool) []byte {
 // toastJob builds a "toast" queue.Job envelope for hub.Broadcast.
 func toastJob(message, kind string) []byte {
 	p := mustJSON(map[string]string{"toastType": kind, "message": message})
-	j := mustJSON(queue.Job{Type: "toast", Payload: p})
+	j := mustJSON(queue.Job{Type: jobTypeToast, Payload: p})
 	return j
 }
 
