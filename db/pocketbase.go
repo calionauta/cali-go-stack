@@ -1,6 +1,9 @@
 package db
 
 import (
+	"log/slog"
+	"os"
+
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
@@ -18,8 +21,12 @@ func Init(cfg *config.Config) (*pocketbase.PocketBase, error) {
 		DefaultDataDir:       cfg.DataDir,
 		DefaultEncryptionEnv: cfg.EncryptionKey,
 		DBConnect: func(dbPath string) (*dbx.DB, error) {
-			// Note: busy_timeout must be first so the connection blocks on busy
-			// before WAL mode is set (in case another connection already set it).
+			// ncruces parses ?_pragma= query params only when the DSN is a
+			// file: URI; without the prefix it treats the whole string as the
+			// filename and creates a malformed "<db>.db?_pragma=..." file.
+			// busy_timeout must be first so the connection blocks on a busy
+			// lock before WAL mode is set (in case another connection already
+			// set it).
 			pragmas := "?_pragma=busy_timeout(10000)" +
 				"&_pragma=journal_mode(WAL)" +
 				"&_pragma=journal_size_limit(200000000)" +
@@ -27,7 +34,18 @@ func Init(cfg *config.Config) (*pocketbase.PocketBase, error) {
 				"&_pragma=foreign_keys(ON)" +
 				"&_pragma=temp_store(MEMORY)" +
 				"&_pragma=cache_size(-32000)"
-			return dbx.Open("sqlite3", dbPath+pragmas)
+			// One-time migration: an earlier build omitted the file: prefix
+			// and created the DB under the malformed name. If the clean path
+			// is missing but the legacy name exists, rename it so no demo
+			// data (todos, pt_* workflow state, users) is lost on upgrade.
+			if _, err := os.Stat(dbPath); err != nil {
+				if _, err := os.Stat(dbPath + pragmas); err == nil {
+					if rerr := os.Rename(dbPath+pragmas, dbPath); rerr != nil {
+						slog.Warn("db: legacy malformed db file rename failed; starting fresh", "error", rerr)
+					}
+				}
+			}
+			return dbx.Open("sqlite3", "file:"+dbPath+pragmas)
 		},
 	})
 

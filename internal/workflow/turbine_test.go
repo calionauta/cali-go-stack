@@ -57,7 +57,7 @@ func newTestApp(t *testing.T, tmpDir string) *pocketbase.PocketBase {
 				"&_pragma=journal_mode(WAL)" +
 				"&_pragma=foreign_keys(ON)" +
 				"&_pragma=synchronous(NORMAL)"
-			return dbx.Open("sqlite3", dbPath+pragmas)
+			return dbx.Open("sqlite3", "file:"+dbPath+pragmas)
 		},
 	})
 	if err := app.Bootstrap(); err != nil {
