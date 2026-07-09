@@ -18,6 +18,22 @@ type Signals struct {
 	EditTitle string `json:"editTitle"`
 	Loading   bool   `json:"loading"`
 	ItemCount int    `json:"itemCount"`
+
+	// ConfirmDelete is the id of the todo whose delete-confirm modal is
+	// currently open. Empty string means no modal is shown. The title
+	// is mirrored into ConfirmDeleteTitle so the modal body can name the
+	// row without re-fetching it.
+	ConfirmDelete      string `json:"confirmingDeleteId"`
+	ConfirmDeleteTitle string `json:"confirmingDeleteTitle"`
+	Deleting           bool   `json:"deleting"`
+
+	// TechStep + TechDone + TechPhase drive the techstack diagnostics
+	// <ul class="steps"> component. TechStep is the slug of the most
+	// recent action ("suggest", "retry-demo", "workflow"); TechDone
+	// flips true once success arrives; TechPhase surfaces "error".
+	TechStep  string `json:"techStep"`
+	TechDone  bool   `json:"techDone"`
+	TechPhase string `json:"techPhase"`
 	// ClientID is the SSE client id assigned when the stream opens. The
 	// UI uses it to route queued-job results and retry feedback back to
 	// the correct browser tab, so a Suggest triggered here lands here

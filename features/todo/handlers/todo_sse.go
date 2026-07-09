@@ -157,7 +157,10 @@ func (h *TodoHandler) streamTodo(c *core.RequestEvent, sse *sdk.ServerSentEventG
 	// The TodoItem template reads this via data-source to pick the
 	// remote entry animation (left-slide + info pulse) vs the self
 	// one. View transitions give a free cross-fade.
-	if err := dshelpers.MergeSignals(sse, map[string]any{"lastItemSource": "remote"}); err != nil {
+	if err := dshelpers.MergeSignals(sse, map[string]any{
+		"lastItemSource": "remote",
+		"itemCount":      len(todos),
+	}); err != nil {
 		return err
 	}
 	return dshelpers.RenderAndPatch(sse, h.renderTodoList(todos),
@@ -186,11 +189,21 @@ func (h *TodoHandler) streamSuggestResult(sse *sdk.ServerSentEventGenerator, pay
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return fmt.Errorf("decode suggest_result payload: %w", err)
 	}
-	if err := dshelpers.MergeSignals(sse, map[string]any{
+	merge := map[string]any{
 		signalSuggestions:    p.Suggestions,
 		signalSuggestErr:     p.SuggestErr,
 		signalSuggestPending: p.SuggestPending,
-	}); err != nil {
+		// Techstack diagnostic panel: flip techStep to "suggest" so the
+		// DaisyUI <ul class="steps"> highlights the right node, and
+		// mark done once the result lands so the success colour
+		// replaces the primary highlight.
+		"techStep": "suggest",
+		"techDone": p.SuggestErr == "" && !p.SuggestPending,
+	}
+	if p.SuggestErr != "" {
+		merge["techPhase"] = "error"
+	}
+	if err := dshelpers.MergeSignals(sse, merge); err != nil {
 		return err
 	}
 	if p.SuggestErr != "" {
@@ -213,13 +226,23 @@ func (h *TodoHandler) streamProgress(sse *sdk.ServerSentEventGenerator, payload 
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return fmt.Errorf("decode progress payload: %w", err)
 	}
-	if err := dshelpers.MergeSignals(sse, map[string]any{
+	signals := map[string]any{
 		"onboardingActive": true,
 		"onboardingStep":   p.Step,
 		"onboardingTotal":  p.Total,
 		"onboardingPhase":  p.Phase,
 		"onboardingDetail": p.Detail,
-	}); err != nil {
+		"techStep":         "workflow",
+	}
+	// Tech panel: mark done if the workflow has reached the finalize
+	// phase (Turbine broadcasts the final step on completion). The
+	// streamTodo dispatcher also flips $workflowCompleted via the
+	// "workflow-completed" event type.
+	if p.Phase == "finalize" {
+		signals["workflowCompleted"] = true
+		signals["techDone"] = true
+	}
+	if err := dshelpers.MergeSignals(sse, signals); err != nil {
 		return err
 	}
 	return emitToast(sse, p.Detail, "info")

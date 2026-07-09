@@ -7,6 +7,19 @@ import (
 	"github.com/calionauta/gogogo-fullstack-template/features/todo"
 )
 
+// TodoItem renders a single todo row. Important wiring notes:
+//
+//   - The checkbox's checked state is rendered server-side via the
+//     `checked={ item.Completed }` Templ attr; the click handler
+//     posts the toggle. Datastar does NOT auto-fire the click when the
+//     server renders `checked` (we previously saw it auto-submit in
+//     some flows because the input didn't have a value binding).
+//
+//   - The delete button opens the shared confirmation modal (one
+//     dialog instance for every row), driven by the $confirmingDeleteId
+//     signal. Clicking the trash sets the id and the title (used in
+//     the modal's "Delete <title>?" body), then the modal handles the
+//     confirm/cancel flow.
 templ TodoItem(item todo.Todo) {
 	<div
 		class="todo-item flex items-center gap-3 p-3 border-b border-base-300 hover:bg-base-200 transition-colors"
@@ -16,8 +29,8 @@ templ TodoItem(item todo.Todo) {
 		<input
 			type="checkbox"
 			class="checkbox checkbox-primary checkbox-sm"
-			checked={ item.Completed }
-			data-on:click={ "@post('/api/todos/" + item.ID + "/toggle')" }
+			checked?={ item.Completed }
+			data-on:click__prevent={ "@post('/api/todos/" + item.ID + "/toggle')" }
 		/>
 		if item.Completed {
 			<span class="flex-1 line-through text-base-content/50">{ item.Title }</span>
@@ -26,9 +39,10 @@ templ TodoItem(item todo.Todo) {
 		}
 		<span class="text-xs text-base-content/40">{ timeAgo(item.CreatedAt) }</span>
 		<button
+			type="button"
 			class="btn btn-ghost btn-xs text-error transition-transform hover:scale-110 active:scale-95"
-			data-on:click={ "@post('/api/todos/" + item.ID + "/delete')" }
 			title="Delete todo"
+			data-on:click={ "$confirmingDeleteId = '" + item.ID + "'; $confirmingDeleteTitle = " + safeJSString(item.Title) }
 		>
 			<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
 				<path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/>

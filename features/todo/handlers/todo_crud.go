@@ -9,23 +9,43 @@ import (
 	sdk "github.com/starfederation/datastar-go/datastar"
 
 	"github.com/calionauta/gogogo-fullstack-template/features/todo"
+	"github.com/calionauta/gogogo-fullstack-template/features/todo/components"
 	dshelpers "github.com/calionauta/gogogo-fullstack-template/internal/datastar"
 )
 
 func (h *TodoHandler) handleList(c *core.RequestEvent) error {
 	filter := c.Request.URL.Query().Get("filter")
+	if filter == "" {
+		filter = "all"
+	}
 	todos, err := h.listTodos(c, filter)
 	if err != nil {
 		slog.Error("todo: list failed", "filter", filter, "error", err)
 		return c.String(statusInternal, "error listing todos")
 	}
 
+	// Merge the filter + itemCount signals so the tabs flip and the
+	// header/footer count update; then patch the #todo-list region with
+	// the matching rows. Both must happen on the same SSE response so
+	// the active-tab class and the visible rows update in lockstep.
 	sse := sdk.NewSSE(c.Response, c.Request)
-	return dshelpers.MergeSignals(sse, todo.Signals{
-		Todos: todos, Filter: filter, ItemCount: len(todos),
+	if err := dshelpers.MergeSignals(sse, todo.Signals{
+		Filter:       filter,
+		ItemCount:    len(todos),
+		Loading:      false,
 		AdminEnabled: h.cfg.AdminToken != "",
 		LLMEnabled:   h.llmEnabled(),
-	})
+	}); err != nil {
+		return err
+	}
+	return dshelpers.RenderAndPatch(
+		sse, components.TodoListRegion(todo.Signals{
+			Todos: todos, Filter: filter, ItemCount: len(todos),
+			AdminEnabled: h.cfg.AdminToken != "",
+			LLMEnabled:   h.llmEnabled(),
+		}),
+		sdk.WithSelector("#todo-list"),
+	)
 }
 
 // patchTodoListWithSelfOrigin is the per-handler exit for local todo
@@ -34,8 +54,16 @@ func (h *TodoHandler) handleList(c *core.RequestEvent) error {
 // list, with view transitions enabled for a smooth cross-fade. Each
 // HTTP handler returns the toast AFTER this, so the toast rides on the
 // same SSE response and reaches the user together with the new list.
+//
+// Also merges the latest itemCount into the $itemCount signal so the
+// header badge and the footer count update together — previously the
+// count lived only on the rendered HTML and never refreshed from the
+// server.
 func (h *TodoHandler) patchTodoListWithSelfOrigin(sse *sdk.ServerSentEventGenerator, todos []todo.Todo) error {
-	if err := dshelpers.MergeSignals(sse, map[string]any{"lastItemSource": "self"}); err != nil {
+	if err := dshelpers.MergeSignals(sse, map[string]any{
+		"lastItemSource": "self",
+		"itemCount":      len(todos),
+	}); err != nil {
 		return err
 	}
 	return dshelpers.RenderAndPatch(sse, h.renderTodoList(todos),
@@ -79,6 +107,15 @@ func (h *TodoHandler) handleCreate(c *core.RequestEvent) error {
 		return c.String(statusInternal, "error listing todos")
 	}
 	sse := sdk.NewSSE(c.Response, c.Request)
+	// Reset loading + clear the input on success so the form returns
+	// to a clean idle state. $loading=true flips the button spinner,
+	// $newTitle='' clears the title input.
+	if err := dshelpers.MergeSignals(sse, map[string]any{
+		"loading":  false,
+		"newTitle": "",
+	}); err != nil {
+		return err
+	}
 	// The patch below is synchronous: the broadcaster already re-renders
 	// other connected clients in real time, so the queue would only add
 	// latency for a fast local mutation. View Transitions give a free
