@@ -3,8 +3,9 @@
 package main
 
 import (
-	"github.com/calionauta/gogogo-fullstack-template/config"
 	"github.com/pocketbase/pocketbase"
+
+	"github.com/calionauta/gogogo-fullstack-template/config"
 )
 
 func startTurbine(app *pocketbase.PocketBase, cfg *config.Config) {
