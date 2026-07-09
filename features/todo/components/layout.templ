@@ -127,12 +127,19 @@ templ Layout(title string, signals todo.Signals, userEmail string) {
 				}
 
 				/* View Transitions: cross-fade when Datastar morphs the
-				   list. Gives delete + reorder a smooth blend without
-				   extra backend work. The name must match the CSS
-				   selector for the pseudo-elements below. */
-				.todo-item {
-					view-transition-name: todo-item;
-				}
+				   list. Earlier we put `view-transition-name: todo-item`
+				   on every .todo-item, which produced 'Unexpected
+				   duplicate view-transition-name' + 'InvalidStateError'
+				   in the console because multiple items in the same
+				   patch share the same name. The View Transitions API
+				   expects per-element unique names — which we can't
+				   hand out cheaply from a static CSS rule. So we skip
+				   the explicit `view-transition-name` and rely on the
+				   entry keyframes below (self/remote slide+fade) to
+				   animate new arrivals; Datastar still calls
+				   `document.startViewTransition()` around the morph,
+				   so deleted/reordered items get a smooth blend from
+				   the default browser cross-fade. */
 				::view-transition-old(todo-item),
 				::view-transition-new(todo-item) {
 					animation-duration: 320ms;

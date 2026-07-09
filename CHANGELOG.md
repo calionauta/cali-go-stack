@@ -2,6 +2,12 @@
 
 All notable changes to this template are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.3] - 2026-07-09
+
+### Fixed
+- **Console errors on todo list patches.** The static CSS rule `view-transition-name: todo-item` was attached to every `.todo-item` element. The View Transitions API expects per-element unique names, so when the list re-rendered with multiple items, the browser logged `Unexpected duplicate view-transition-name: todo-item` and cascaded into `InvalidStateError: Transition was aborted because of invalid state` (and a stray `Access to storage is not allowed from this context` from the surrounding plugin code). Removed the duplicate-causing rule; per-item entry animations (`todo-enter-self`, `todo-enter-remote`) still cover the entry feel, and Datastar's `WithViewTransitions()` still wraps the patch in a `document.startViewTransition()` for the default root cross-fade.
+- **"Suggest (simulated)" button not visible on the public demo.** `SIMULATE_LLM` defaulted to empty in the production compose file, so `signals.SimulatedLLM` was false and the mock-server affordance was hidden. The compose now sets `SIMULATE_LLM: ${SIMULATE_LLM:-true}` so the keyless "Suggest (simulated)" button (which exercises the full queue + retry + SSE pipeline against an in-process fake) is exposed alongside the real LLM button. Set `SIMULATE_LLM=false` to disable for private deployments.
+
 ## [0.6.2] - 2026-07-09
 
 ### Fixed

@@ -40,6 +40,13 @@ services:
       NATS_STORE_DIR: /var/lib/${APP_NAME:-gogogo-fullstack-template}/data/nats
       WORKFLOW_ENABLED: "true"
       WORKFLOW_EXECUTOR_ID: local
+      # Demo affordance: the keyless "Suggest (simulated)" button
+      # uses an in-process fake LLM that scripts 500 -> 200 + delay
+      # so visitors can watch the full queue + retry + SSE pipeline
+      # without burning real tokens. Kept ON by default for the
+      # public demo site; the real LLM button (GOAI_API_KEY-gated)
+      # is rendered independently when that key is set.
+      SIMULATE_LLM: ${SIMULATE_LLM:-true}
     env_file:
       - /home/deploy/gogogo-fullstack-template/secrets/gogogo-fullstack-template.env
     volumes:
