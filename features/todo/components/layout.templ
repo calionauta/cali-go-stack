@@ -67,6 +67,77 @@ templ Layout(title string, signals todo.Signals, userEmail string) {
 					from { width: 100%; }
 					to { width: 0%; }
 				}
+
+				/* ---------- Todo item animations (self vs remote) ---------- */
+
+				/* Default entry for the initial server-rendered list:
+				   soft fade + tiny zoom. */
+				.todo-item {
+					animation: todo-enter-initial 300ms ease-out both;
+				}
+				@keyframes todo-enter-initial {
+					from { opacity: 0; transform: scale(0.96); }
+					to   { opacity: 1; transform: scale(1); }
+				}
+
+				/* Self-origin: the user who triggered the mutation. Slide
+				   in from the top (feels like it fell from the input) with
+				   a primary highlight that quickly decays. */
+				.todo-item[data-source="self"] {
+					animation: todo-enter-self 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+					background-color: oklch(var(--p) / 0.10);
+				}
+				@keyframes todo-enter-self {
+					from { opacity: 0; transform: translateY(-12px) scale(0.97); }
+					to   { opacity: 1; transform: translateY(0)     scale(1); }
+				}
+				.todo-item[data-source="self"]:hover {
+					background-color: oklch(var(--p) / 0.0);
+				}
+
+				/* Remote-origin: broadcast from another client. Slide in
+				   from the LEFT (incoming from elsewhere), info-tint pulse
+				   that decays over ~900ms, plus a small "from-elsewhere"
+				   indicator pill. */
+				.todo-item[data-source="remote"] {
+					animation: todo-enter-remote 720ms cubic-bezier(0.2, 0.8, 0.2, 1) both,
+					           remote-pulse 900ms ease-out 320ms both;
+					background-color: oklch(var(--in) / 0.18);
+				}
+				@keyframes todo-enter-remote {
+					from { opacity: 0; transform: translateX(-28px) scale(0.97); }
+					to   { opacity: 1; transform: translateX(0)     scale(1); }
+				}
+				@keyframes remote-pulse {
+					0%   { background-color: oklch(var(--in) / 0.28); }
+					100% { background-color: oklch(var(--in) / 0.0); }
+				}
+				.todo-item[data-source="remote"]::before {
+					content: "from someone else";
+					font-size: 0.625rem;
+					text-transform: uppercase;
+					letter-spacing: 0.05em;
+					color: oklch(var(--in));
+					opacity: 0.85;
+					animation: remote-label-fade 1500ms ease-out 320ms both;
+				}
+				@keyframes remote-label-fade {
+					from { opacity: 0.85; }
+					to   { opacity: 0; }
+				}
+
+				/* View Transitions: cross-fade when Datastar morphs the
+				   list. Gives delete + reorder a smooth blend without
+				   extra backend work. The name must match the CSS
+				   selector for the pseudo-elements below. */
+				.todo-item {
+					view-transition-name: todo-item;
+				}
+				::view-transition-old(todo-item),
+				::view-transition-new(todo-item) {
+					animation-duration: 320ms;
+					animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+				}
 			</style>
 		</head>
 		<body class="bg-base-200 min-h-screen">

@@ -54,6 +54,15 @@ type Signals struct {
 	// connect/disconnect so the UI can show realtime presence.
 	ConnectedClients int `json:"connectedClients"`
 
+	// LastItemSource tags the most recent todo mutation as either
+	// "self" (the user who triggered the HTTP request) or "remote"
+	// (a broadcast from another client). The TodoItem template uses
+	// this to pick an entry animation (top-down for self, left-slide +
+	// pulse for remote) and a highlight tint, so the user can tell at
+	// a glance which todos came from them vs. from others. Empty before
+	// the first mutation.
+	LastItemSource string `json:"lastItemSource"`
+
 	// WorkflowEnabled reflects whether the binary was built with
 	// -tags turbine AND started with WORKFLOW_ENABLED=true. When true,
 	// the UI renders the "Run durable workflow" button.

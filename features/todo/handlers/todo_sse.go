@@ -100,8 +100,15 @@ func (h *TodoHandler) dispatchStreamMessage(c *core.RequestEvent, sse *sdk.Serve
 		if err := json.Unmarshal(job.Payload, &p); err != nil {
 			return fmt.Errorf("decode retry payload: %w", err)
 		}
+		// Merge both the raw JSON (used as a backwards-compatible
+		// signal-marker for `data-text` displays) and the structured
+		// fields, so the AI-suggest queue panel can drive pill
+		// transitions via boolean signals instead of string matching.
 		if err := dshelpers.MergeSignals(sse, map[string]any{
-			"lastRetry": string(job.Payload),
+			"lastRetry":          string(job.Payload),
+			"lastRetryOperation": p.Operation,
+			"lastRetryStatus":    p.Status,
+			"lastRetryAttempt":   p.Attempt,
 		}); err != nil {
 			return err
 		}
@@ -148,7 +155,14 @@ func (h *TodoHandler) dispatchStreamMessage(c *core.RequestEvent, sse *sdk.Serve
 		if err != nil {
 			return fmt.Errorf("list todos for broadcast: %w", err)
 		}
-		return dshelpers.RenderAndPatch(sse, h.renderTodoList(todos), sdk.WithSelector("#todo-list"))
+		// Tag the incoming mutation as "remote" (it arrived via the
+		// broadcaster, so for THIS client it came from someone else).
+		// The TodoItem template reads this via data-source to pick the
+		// remote entry animation (left-slide + info pulse) vs the
+		// self one used when the originating HTTP response patched the
+		// list.
+		_ = dshelpers.MergeSignals(sse, map[string]any{"lastItemSource": "remote"})
+		return dshelpers.RenderAndPatch(sse, h.renderTodoList(todos), sdk.WithSelector("#todo-list"), sdk.WithViewTransitions())
 	case "clients":
 		var p struct {
 			Count int `json:"count"`

@@ -64,10 +64,18 @@ func (h *TodoHandler) handleCreate(c *core.RequestEvent) error {
 		return c.String(statusInternal, "error listing todos")
 	}
 	sse := sdk.NewSSE(c.Response, c.Request)
+	// Tag the originating mutation as "self" so the UI picks the
+	// self-origin entry animation (top-down, primary tint) instead of
+	// the remote one (left-slide, info tint). The broadcast carries
+	// "remote" to the OTHER clients.
+	_ = dshelpers.MergeSignals(sse, map[string]any{"lastItemSource": "self"})
 	// Render the updated list synchronously (the broadcaster already
 	// re-renders other connected clients in real time). No queue here:
 	// the create is fast and local, so the queue would only add latency.
-	if err := dshelpers.RenderAndPatch(sse, h.renderTodoList(todos), sdk.WithSelector("#todo-list")); err != nil {
+	// WithViewTransitions enables the browser's View Transitions API
+	// on the morph, giving a free cross-fade for the new item (and any
+	// reordered/removed items in the same patch).
+	if err := dshelpers.RenderAndPatch(sse, h.renderTodoList(todos), sdk.WithSelector("#todo-list"), sdk.WithViewTransitions()); err != nil {
 		return err
 	}
 	return emitToast(sse, "Added", "success")
@@ -103,7 +111,8 @@ func (h *TodoHandler) handleToggle(c *core.RequestEvent) error {
 		return c.String(statusInternal, "error listing todos")
 	}
 	sse := sdk.NewSSE(c.Response, c.Request)
-	return dshelpers.RenderAndPatch(sse, h.renderTodoList(todos), sdk.WithSelector("#todo-list"))
+	_ = dshelpers.MergeSignals(sse, map[string]any{"lastItemSource": "self"})
+	return dshelpers.RenderAndPatch(sse, h.renderTodoList(todos), sdk.WithSelector("#todo-list"), sdk.WithViewTransitions())
 }
 
 func (h *TodoHandler) handleDelete(c *core.RequestEvent) error {
@@ -129,7 +138,8 @@ func (h *TodoHandler) handleDelete(c *core.RequestEvent) error {
 		return c.String(statusInternal, "error listing todos")
 	}
 	sse := sdk.NewSSE(c.Response, c.Request)
-	if err := dshelpers.RenderAndPatch(sse, h.renderTodoList(todos), sdk.WithSelector("#todo-list")); err != nil {
+	_ = dshelpers.MergeSignals(sse, map[string]any{"lastItemSource": "self"})
+	if err := dshelpers.RenderAndPatch(sse, h.renderTodoList(todos), sdk.WithSelector("#todo-list"), sdk.WithViewTransitions()); err != nil {
 		return err
 	}
 	return emitToast(sse, fmt.Sprintf("Deleted “%s”", title), "info")
@@ -154,7 +164,8 @@ func (h *TodoHandler) handleClearCompleted(c *core.RequestEvent) error {
 		return c.String(statusInternal, "error listing todos")
 	}
 	sse := sdk.NewSSE(c.Response, c.Request)
-	if err := dshelpers.RenderAndPatch(sse, h.renderTodoList(todos), sdk.WithSelector("#todo-list")); err != nil {
+	_ = dshelpers.MergeSignals(sse, map[string]any{"lastItemSource": "self"})
+	if err := dshelpers.RenderAndPatch(sse, h.renderTodoList(todos), sdk.WithSelector("#todo-list"), sdk.WithViewTransitions()); err != nil {
 		return err
 	}
 	if count == 0 {

@@ -143,7 +143,7 @@ func resumeOnboardingIfPending(h *OnboardingHandler, user string) {
 			if err == nil {
 				publishOnboardingProgress(h.broadcaster, context.Background(), 5, 5, "finalize", "Step 5/5 — Onboarding complete")
 				if h.broadcaster != nil {
-					_ = h.broadcaster.PublishTodoUpdate(context.Background(), todoUpdateJob("workflow-completed", "", "", false))
+					_ = h.broadcaster.PublishTodoUpdate(context.Background(), todoUpdateJob("workflow-completed", "remote", "", "", false))
 				}
 				return
 			}

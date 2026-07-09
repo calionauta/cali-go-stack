@@ -2,6 +2,21 @@
 
 All notable changes to this template are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-07-09
+
+### Added
+- **Self vs. remote todo animations.** Every todo mutation now carries a `source` tag ("self" or "remote") that the UI uses to pick a distinct entry animation, tint, and highlight:
+  - **Self** (you created it): `slide-in-from-top + primary tint` that decays (~320ms).
+  - **Remote** (broadcast from another client): `slide-in-from-left + info tint + pulse` that decays (~720ms), plus a small "from someone else" indicator that fades out.
+  - The new `lastItemSource` signal is merged by the local HTTP handler ("self") and by the SSE dispatcher on broadcast ("remote"); the `TodoItem` template reads it via `data-attr:data-source` and the CSS variants live in `layout.templ`.
+- **View Transitions API** on every list patch (`sdk.WithViewTransitions()` on `RenderAndPatch` for `#todo-list`). Gives delete + reorder a smooth cross-fade for free (Chrome/Edge/Safari; Firefox gracefully falls back to morph).
+- **AI suggest queue panel.** A small dashboard mounted when LLM or simulated LLM is active. Pills (DaisyUI `badge-ghost` / `badge-warning` / `badge-success`) flip as the operation transitions enqueue → attempt failed → completed, driven by new structured signals (`lastRetryStatus`, `lastRetryOperation`, `lastRetryAttempt`). Skeleton rows + loading dots while pending.
+- **Onboarding progress bar** alongside the Turbine stepper (`<progress class="progress progress-primary">`) so users see the step ratio at a glance while the live stepper advances.
+
+### Changed
+- `todoUpdateJob` gained a `source` parameter so every broadcast carries origin information.
+- The retry SSE dispatcher now merges structured signals (`lastRetryOperation`, `lastRetryStatus`, `lastRetryAttempt`) alongside the existing raw-JSON `lastRetry` signal, so the UI can drive pill transitions via boolean expressions instead of string matching.
+
 ## [0.5.0] - 2026-07-09
 
 ### Changed

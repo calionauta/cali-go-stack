@@ -73,6 +73,18 @@ templ TodoList(signals todo.Signals) {
 					</div>
 				}
 
+				// AI suggest queue panel: visible whenever a suggest flow
+				// is in flight OR the last retry feedback concerned a
+				// suggest operation. Renders the current phase as DaisyUI
+				// pills + a skeleton/loading-dots indicator so the user
+				// can see enqueue → attempt → retry → result in real time.
+				// (signals.LastRetry is the raw JSON of the latest retry
+				// event; we use it purely as a "is this a suggest job?"
+				// trigger — the per-attempt toast still narrates details.)
+				if signals.LLMEnabled || signals.SimulatedLLM {
+					@suggestQueuePanel()
+				}
+
 				<div class="tabs tabs-box mb-4" role="tablist">
 				@renderTab("All", "all", signals.Filter, "/api/todos?filter=all")
 				@renderTab("Active", "active", signals.Filter, "/api/todos?filter=active")
@@ -170,7 +182,15 @@ templ TechstackPanel(signals todo.Signals) {
 				if signals.OnboardingActive && signals.OnboardingTotal > 0 {
 					<div class="mt-2 p-3 bg-base-200/40 rounded-lg">
 						<div class="text-xs font-semibold mb-2">Durable workflow progress (Turbine + JetStream realtime):</div>
-						<ul class="steps steps-vertical w-full">
+						// Progress bar: at-a-glance ratio alongside the stepper.
+						// Drives off the same OnboardingStep/OnboardingTotal
+						// signals; animates the value transition for free.
+						<progress
+							class="progress progress-primary w-full h-1"
+							value={ strconv.Itoa(signals.OnboardingStep) }
+							max={ strconv.Itoa(signals.OnboardingTotal) }
+						></progress>
+						<ul class="steps steps-vertical w-full mt-2">
 							for i := 1; i <= signals.OnboardingTotal; i++ {
 								<li class={ map[bool]string{true: "step step-primary", false: "step"}[i <= signals.OnboardingStep] }>
 									Step { strconv.Itoa(i) }
@@ -249,3 +269,45 @@ templ suggestionsList(suggestions []string) {
 func safeJSString(s string) string {
 	return strconv.Quote(s)
 }
+
+// suggestQueuePanel renders the live status of any AI suggest queue
+// flow (real or simulated). It is mounted whenever LLM is enabled OR
+// the simulated LLM mode is active. Pills flip on/off as the
+// operation transitions enqueue -> attempt -> retry -> result, driven
+// by the Datastar signals $suggestPending, $lastRetryStatus, and
+// $lastRetryOperation. The per-attempt toast narration already conveys
+// the detailed message; this panel is the at-a-glance dashboard.
+templ suggestQueuePanel() {
+	<div
+		class="mb-4 p-3 rounded-lg bg-base-200/50 border border-base-300 animate-in fade-in slide-in-from-top-2 animate-duration-300"
+		data-show="$suggestPending || ($lastRetryStatus && ($lastRetryOperation === 'suggest' || $lastRetryOperation === 'suggest_simulated' || $lastRetryOperation === 'retry-demo'))"
+	>
+		<div class="flex items-center gap-2 flex-wrap text-xs">
+			<span class="font-semibold opacity-70">AI suggest queue</span>
+			<span class="badge badge-ghost badge-sm gap-1" data-show="$suggestPending && !$lastRetryStatus">
+				<span class="loading loading-dots loading-xs"></span>
+				enqueued
+			</span>
+			<span
+				class="badge badge-warning badge-sm gap-1"
+				data-show="$lastRetryStatus === 'attempt' && ($lastRetryOperation === 'suggest' || $lastRetryOperation === 'suggest_simulated')"
+			>
+				<span class="loading loading-spinner loading-xs"></span>
+				attempt failed - retrying
+			</span>
+			<span
+				class="badge badge-success badge-sm gap-1"
+				data-show="$lastRetryStatus === 'success' && ($lastRetryOperation === 'suggest' || $lastRetryOperation === 'suggest_simulated')"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+				completed
+			</span>
+			<span class="loading loading-dots loading-sm" data-show="$suggestPending"></span>
+		</div>
+		<div class="mt-2 space-y-1" data-show="$suggestPending">
+			<div class="skeleton skeleton-text h-3 w-3/4"></div>
+			<div class="skeleton skeleton-text h-3 w-1/2"></div>
+		</div>
+	</div>
+}
+

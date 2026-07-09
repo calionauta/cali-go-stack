@@ -119,7 +119,7 @@ func (h *TodoHandler) broadcastTodo(c *core.RequestEvent, event string, item tod
 	}
 	if err := h.broadcaster.PublishTodoUpdate(
 		c.Request.Context(),
-		todoUpdateJob(event, item.ID, item.Title, item.Completed),
+		todoUpdateJob(event, "remote", item.ID, item.Title, item.Completed),
 	); err != nil {
 		slog.Warn("todo: broadcast failed", "error", err)
 	}
@@ -287,13 +287,16 @@ func (h *TodoHandler) broadcastRetryFeedback(hub *queue.SSEHub, attempt int, opE
 // todoUpdateJob builds the queue.Job envelope broadcast for a todo
 // mutation. Both the HTTP handlers (broadcastTodo) and the durable
 // workflow creator (PocketBaseTodoCreator) use it so every connected
-// client re-renders its list on any change.
-func todoUpdateJob(event, id, title string, done bool) []byte {
+// client re-renders its list on any change. The source tag ("self" /
+// "remote") lets the receiving client pick a different entry animation
+// and tint for items that originated elsewhere.
+func todoUpdateJob(event, source, id, title string, done bool) []byte {
 	ev := mustJSON(map[string]any{
-		"event": event,
-		"id":    id,
-		"title": title,
-		"done":  done,
+		"event":  event,
+		"source": source,
+		"id":     id,
+		"title":  title,
+		"done":   done,
 	})
 	j := mustJSON(queue.Job{Type: "todo", Payload: ev})
 	return j
