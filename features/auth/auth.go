@@ -82,6 +82,28 @@ func LoadAuthFromCookie(e *core.RequestEvent) error {
 	return e.Next()
 }
 
+// LoadAppAuth populates e.Auth from the app's gogogo_auth cookie WITHOUT
+// the global /api/ skip used by LoadAuthFromCookie. Bind it on specific
+// /api routes that need the authenticated user (e.g. the durable-workflow
+// onboarding endpoint), so the request pipeline sees the logged-in demo
+// user and can scope created records to their tenant.
+//
+// It returns e.Next() (leaving e.Auth nil) when there is no valid cookie,
+// so handlers that bind it still work for anonymous requests and fall
+// back to a default user.
+func LoadAppAuth(e *core.RequestEvent) error {
+	cookie, err := e.Request.Cookie(cookieName)
+	if err != nil || cookie.Value == "" {
+		return e.Next()
+	}
+	record, err := e.App.FindAuthRecordByToken(cookie.Value, core.TokenTypeAuth)
+	if err != nil {
+		return e.Next()
+	}
+	e.Auth = record
+	return e.Next()
+}
+
 // RequireAuthOrRedirect returns e.Next() when e.Auth is set, otherwise
 // 303 redirects to /login. Use on routes that require login — but for
 // a public demo, we use RedirectOnlyAnonymous to bounce guests to

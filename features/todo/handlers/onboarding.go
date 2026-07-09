@@ -15,6 +15,7 @@ import (
 	"github.com/pocketbase/pocketbase/tools/router"
 	sdk "github.com/starfederation/datastar-go/datastar"
 
+	"github.com/calionauta/gogogo-fullstack-template/features/auth"
 	"github.com/calionauta/gogogo-fullstack-template/internal/datastar"
 	"github.com/calionauta/gogogo-fullstack-template/internal/nats"
 	"github.com/calionauta/gogogo-fullstack-template/internal/queue"
@@ -72,7 +73,11 @@ func RegisterOnboardingRoutes(
 
 	if r != nil && rt != nil {
 		h := &OnboardingHandler{app: app, q: q, rt: rt, broadcaster: broadcaster}
-		r.POST("/api/onboarding/start", h.handleStart)
+		// LoadAppAuth populates c.Auth from the demo user's gogogo_auth
+		// cookie (the global LoadAuthFromCookie skips /api/), so the
+		// workflow scopes the created todos to the logged-in user's
+		// tenant instead of falling back to an anonymous "friend".
+		r.POST("/api/onboarding/start", h.handleStart).BindFunc(auth.LoadAppAuth)
 	}
 }
 

@@ -41,6 +41,7 @@ func (h *TodoHandler) handleSSEStream(c *core.RequestEvent) error {
 		ItemCount:        len(todos),
 		AdminEnabled:     h.cfg.AdminToken != "",
 		LLMEnabled:       h.llmEnabled(),
+		WorkflowEnabled:  h.cfg.Workflow.Enabled,
 		ConnectedClients: h.q.Hub().Stats().Clients,
 	}); err != nil {
 		return err
