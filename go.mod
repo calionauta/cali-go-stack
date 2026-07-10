@@ -1,6 +1,6 @@
 module github.com/calionauta/gogogo-fullstack-template
 
-go 1.26.5
+go 1.26
 
 tool github.com/a-h/templ/cmd/templ
 

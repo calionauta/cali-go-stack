@@ -12,6 +12,13 @@ jobs:
       matrix:
         tag: ["", "jetstream", "dagnats", "jetstream dagnats"]
     runs-on: ubuntu-latest
+    env:
+      # Use the Go toolchain already on the runner (1.26.x) instead of
+      # having setup-go extract a fresh one. The extraction step has been
+      # observed corrupting the toolchain tar on this runner image
+      # ("Cannot open: File exists"), which breaks `go` entirely. With
+      # go.mod pinned to `go 1.26`, the runner's 1.26.4 satisfies it.
+      GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
