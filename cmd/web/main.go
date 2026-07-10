@@ -16,12 +16,7 @@ import (
 	"os"
 
 	"github.com/calionauta/gogogo-fullstack-template/config"
-	"github.com/calionauta/gogogo-fullstack-template/db"
-	"github.com/calionauta/gogogo-fullstack-template/features/app"
-	"github.com/calionauta/gogogo-fullstack-template/features/todo/handlers"
-	"github.com/calionauta/gogogo-fullstack-template/internal/llm"
-	"github.com/calionauta/gogogo-fullstack-template/internal/queue"
-	"github.com/calionauta/gogogo-fullstack-template/router"
+	"github.com/calionauta/gogogo-fullstack-template/internal/server"
 )
 
 func main() {
@@ -61,44 +56,11 @@ func runHealthcheck() error {
 func run() error {
 	cfg := config.Load()
 
-	pb, err := db.Init(cfg)
+	pb, todoH, shutdown, err := server.Run(cfg, nil)
 	if err != nil {
-		return fmt.Errorf("PocketBase init: %w", err)
+		return err
 	}
-
-	if seedErr := db.SeedDefaults(pb); seedErr != nil {
-		return fmt.Errorf("seed: %w", seedErr)
-	}
-
-	q, err := queue.New(cfg)
-	if err != nil {
-		return fmt.Errorf("queue init: %w", err)
-	}
-	defer q.Close()
-
-	// Context bundles the cross-cutting dependencies (queue, LLM
-	// client) and is the seam where downstream projects add their own
-	// cross-cutting middleware. Currently only used for LogStartupSummary
-	// below; future feature handlers can take *app.Context instead
-	// of (q, llm, ...) to avoid the dependency-assembly boilerplate.
-	_ = app.New(cfg, q)
-
-	todoH := handlers.New(pb, q, cfg)
-	todoH.RegisterHandlers(q.Registry())
-	todoH.SetLLMClient(llm.New(cfg.GoAI.APIKey))
-
-	// Simulated LLM mode (SIMULATE_LLM=true): swap in an in-process fake
-	// so the "Suggest (simulated)" demo exercises the queue + retry path
-	// keyless. The fake scripts 500 → 200 + delay, which the worker
-	// surfaces as per-attempt toasts. See docs/async-demo-sequencing.md.
-	if v := os.Getenv("SIMULATE_LLM"); v == "true" || v == "1" {
-		sim := llm.NewSimulated()
-		todoH.SetSimulatedLLMClient(sim)
-		defer sim.Close()
-	}
-
-	workers := q.StartWorkers()
-	_ = workers // held for lifecycle parity; workers run until queue close
+	defer shutdown()
 
 	// DagNats (build tag dagnats) owns the embedded NATS on :4222 and
 	// must boot first so the realtime broadcaster can attach to it.
@@ -106,8 +68,7 @@ func run() error {
 	defer shutdownDagNats()
 
 	js := startNATS(cfg)
-
-	router.Init(pb, q, cfg, js, todoH)
+	_ = js // startNATS has the side-effect of wiring the global broadcaster
 
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	// PocketBase v0.39+ uses a Cobra root command. pb.Start() calls

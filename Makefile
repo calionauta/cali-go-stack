@@ -6,7 +6,7 @@ COMMIT      := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILDTIME   := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 LDFLAGS     := -ldflags="-w -X main.Version=$(VERSION) -X main.CommitHash=$(COMMIT) -X main.BuildTime=$(BUILDTIME)"
 
-.PHONY: all build build-jetstream build-dagnats build-all run clean restart templ fmt css css-install datastar-lint test lint vet check-sizes deadcode check deps dev docker-image setup help
+.PHONY: all build build-jetstream build-dagnats build-all desktop wails-build run clean restart templ fmt css css-install datastar-lint test lint vet check-sizes deadcode check deps dev docker-image setup help
 
 all: build
 
@@ -29,6 +29,14 @@ build-dagnats: templ
 build-all: templ
 	@echo "→ Building $(APP_NAME) (JetStream + DagNats) v$(VERSION)..."
 	@go build -tags "jetstream dagnats" $(LDFLAGS) -o $(APP_NAME) ./$(APP_DIR)
+
+desktop: templ
+	@echo "→ Building desktop shell (Wails v3) v$(VERSION)..."
+	@go build $(LDFLAGS) -o gogogo-desktop ./cmd/desktop
+
+wails-build: templ
+	@echo "→ wails build (requires wails CLI: go install github.com/wailsapp/wails/v3/cmd/wails@latest)"...
+	@wails build -app ./cmd/desktop -config ./wails.json
 
 run:
 	@echo "→ Starting $(APP_NAME) on port $(PORT)..."
