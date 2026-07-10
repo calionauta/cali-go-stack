@@ -63,15 +63,16 @@ jobs:
       GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.26"
-          # Disable actions/cache: intermittent malformed tar restore
-          # ("/usr/bin/tar" exit 2) was failing the whole build step on
-          # an infra flake, not on real errors.
-          cache: false
-
+      - name: Install Go 1.26.5 manually
+        # actions/setup-go extracts the toolchain via tar and has been
+        # intermittently corrupting it on this runner image. Install the
+        # official stable tarball from go.dev into /usr/local/go instead.
+        run: |
+          curl -fsSL https://go.dev/dl/go1.26.5.linux-amd64.tar.gz -o /tmp/go.tgz
+          sudo rm -rf /usr/local/go
+          sudo tar -C /usr/local -xzf /tmp/go.tgz
+          echo "/usr/local/go/bin" >> "$GITHUB_PATH"
+          /usr/local/go/bin/go version
       - name: Set up Node
         uses: actions/setup-node@v4
         with:

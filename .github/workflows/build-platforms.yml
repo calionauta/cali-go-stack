@@ -49,9 +49,26 @@ jobs:
       GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.26"
+      - name: Install Go 1.26.5 manually
+        # actions/setup-go extracts the toolchain via tar and has been
+        # intermittently corrupting it on this runner image. Install the
+        # official stable tarball from go.dev instead (per-OS path).
+        shell: bash
+        run: |
+          case "${{ matrix.runner }}" in
+            windows-latest)
+              curl -fsSL https://go.dev/dl/go1.26.5.windows-amd64.zip -o /tmp/go.zip
+              unzip -o /tmp/go.zip -d 'C:\'
+              echo 'C:\go\bin' >> "$GITHUB_PATH"
+              ;;
+            *)
+              curl -fsSL https://go.dev/dl/go1.26.5.linux-amd64.tar.gz -o /tmp/go.tgz
+              sudo rm -rf /usr/local/go
+              sudo tar -C /usr/local -xzf /tmp/go.tgz
+              echo '/usr/local/go/bin' >> "$GITHUB_PATH"
+              ;;
+          esac
+          go version
 
       - name: Generate templ
         run: go tool templ generate
