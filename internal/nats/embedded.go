@@ -200,3 +200,10 @@ func ClientURL() string {
 	}
 	return NS.ClientURL()
 }
+
+// Conn returns the underlying *natsio.Conn established by StartEmbedded or
+// ConnectExisting. It is nil until one of them has succeeded. Callers
+// that need the raw connection (e.g. to subscribe a SyncWorker) use this.
+func Conn() *natsio.Conn {
+	return NC
+}

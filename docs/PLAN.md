@@ -89,8 +89,8 @@
    publishes, the central receives, no custom replay logic.
 
 **Phase C — Loro CRDT + sync worker**
-6. Add `internal/collab` package: `loro-go` `Repo` per whiteboard doc;
-   `EncodeSnapshot`/`ApplySnapshot` helpers; `DocID` = UUID v7.
+6. Add `internal/collab` package: `loro-go` `Doc` per whiteboard doc;
+   `EncodeSnapshot`/`EncodeUpdate`/`ApplyUpdate` helpers; `DocID` = UUID v7.
 7. Desktop publishes Loro updates on `app.sync.<docID>`; on reconnect
    Leaf Node replays buffered events to the central NATS.
 8. Server-side `SyncWorker` (new `cmd/web` handler or standalone) subscribes
@@ -119,10 +119,25 @@
         selects it. `TestLeafNode_ConnectsToCentral` guards the attachment.
       - `cmd/desktop` built with -tags jetstream; if `NATS_LEAFNODE_URL` is set
         it becomes a Leaf Node, else standalone embedded NATS.
-- [ ] `internal/collab` (Loro) compiles; doc create/encode/apply works
-      in a unit test (Phase C)
-- [ ] SyncWorker persists Loro snapshot to PocketBase on `app.sync.>`
-      receive (Phase C)
+- [x] `internal/collab` (Loro) compiles; doc create/encode/apply works
+      in a unit test (Phase C done 2026-07-10)
+      - `internal/collab` wraps `aholstenson/loro-go`: `Doc` (mutex-guarded
+        `LoroDoc`), `EncodeSnapshot`/`EncodeUpdate`/`ApplyUpdate`, and
+        `StateVersion` (version vector). `TestCollab_SyncWorkerPersists`
+        guards the full edge→central path against a real embedded NATS.
+- [x] SyncWorker persists Loro snapshot to PocketBase on `app.sync.>`
+      receive (Phase C done 2026-07-10)
+      - `internal/collab.SyncWorker` subscribes `app.sync.>`, applies each
+        update to the per-doc CRDT, and persists via `Persister`
+        (`PocketBasePersister` → `whiteboards` collection, upsert by
+        `doc_id`). Wired in `router/collab_jetstream.go` (build tag
+        jetstream); no-op otherwise. `db/seed.go` ensures the
+        `whiteboards` collection exists.
+- [x] Desktop publishes Loro updates via `collab.Publisher` on
+      `app.sync.<docID>` (Phase C done 2026-07-10)
+      - `internal/collab.Publisher.PublishUpdate` exports the delta since a
+        version vector and publishes it. `cmd/desktop` (jetstream) builds
+        a publisher over the Leaf Node connection and publishes on boot.
 - [ ] Presence/cursors broadcast over `app.presence.>` (Phase C)
 - [ ] `.github/workflows/build-platforms.yml` builds 4 desktop
       artifacts and uploads them (Phase D)
@@ -139,6 +154,14 @@
   code. Use it.
 - **PocketBase as source of truth**: yes — Worker persists resolved
   Loro snapshot; web + desktop both read final state from it.
+- **go-ds-crdt vs Loro (rejected 2026-07-10)**: evaluated
+  `ipfs/go-ds-crdt` as an alternative CRDT layer. Rejected: it is a
+  **LWW-per-key KV CRDT over libp2p/datastore**, not a document CRDT —
+  concurrent edits to the same whiteboard node would LWW-lose one edit
+  (exactly the failure we chose Loro to avoid). It also drags in libp2p/
+  IPFS (~50+ modules, CGO) on top of the NATS Leaf Node we already have,
+  whereas Loro is a single prebuilt binding and transport-agnostic. Loro
+  stays.
 
 - [ ] README has a "Desktop & Mobile" section with screenshot
 

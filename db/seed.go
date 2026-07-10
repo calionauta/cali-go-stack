@@ -37,6 +37,11 @@ func SeedDefaults(app *pocketbase.PocketBase) error {
 		if err := ensureUsersCollectionRules(se.App); err != nil {
 			slog.Error("seed: ensureUsersCollectionRules failed", "error", err)
 		}
+		// Collaborative whiteboards (Loro CRDT snapshots) — the SyncWorker
+		// (internal/collab) persists resolved docs here.
+		if err := ensureWhiteboardsCollection(se.App); err != nil {
+			slog.Error("seed: ensureWhiteboardsCollection failed", "error", err)
+		}
 		return se.Next()
 	})
 	return nil
@@ -80,7 +85,28 @@ func ensureTodosCollection(app core.App) error {
 	return nil
 }
 
-// ensureDemoUser upserts the demo user into PocketBase's built-in
+// ensureWhiteboardsCollection creates the "whiteboards" collection that
+// stores resolved Loro CRDT snapshots from the collaborative SyncWorker.
+// doc_id is the unique key (matches the JetStream subject app.sync.<docID>);
+// snapshot is the base64 Loro doc; version is a monotonic counter for
+// idempotent upserts.
+func ensureWhiteboardsCollection(app core.App) error {
+	col, err := app.FindCollectionByNameOrId("whiteboards")
+	if err != nil {
+		col = core.NewBaseCollection("whiteboards")
+		col.Fields.Add(
+			&core.TextField{Name: "doc_id", Required: true},
+			&core.TextField{Name: "snapshot"},
+			&core.NumberField{Name: "version"},
+			&core.DateField{Name: "updated"},
+		)
+	}
+	if err := app.Save(col); err != nil {
+		return fmt.Errorf("seed: save whiteboards collection: %w", err)
+	}
+	return nil
+}
+
 // `users` collection (the auth collection). Uses email lookup +
 // password re-set so the seed is idempotent across restarts and so
 // the demo password is always current.

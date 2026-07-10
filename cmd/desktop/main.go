@@ -24,6 +24,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/calionauta/gogogo-fullstack-template/config"
+	"github.com/calionauta/gogogo-fullstack-template/internal/collab"
 	"github.com/calionauta/gogogo-fullstack-template/internal/nats"
 	"github.com/calionauta/gogogo-fullstack-template/internal/server"
 )
@@ -56,6 +57,21 @@ func main() {
 	pb, _, shutdown, err := server.Run(cfg, js)
 	if err != nil {
 		log.Fatalf("boot failed: %v", err)
+	}
+
+	// Edge sync (Phase C): publish local Loro updates on app.sync.<docID>.
+	// When running as a Leaf Node, these replicate to the central server
+	// (and the central SyncWorker persists them to PocketBase). When
+	// standalone, they fan out to local realtime subscribers. The doc
+	// edit below is a minimal end-to-end smoke of the publish path.
+	if js != nil && nats.Conn() != nil {
+		pub := collab.NewPublisher(nats.Conn())
+		demoDoc := collab.NewDoc("desktop-demo")
+		if pubErr := pub.PublishUpdate(demoDoc, nil); pubErr != nil {
+			log.Printf("WARN: collab publish failed: %v", pubErr)
+		} else {
+			log.Printf("desktop: published collab update for %s", demoDoc.ID())
+		}
 	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)

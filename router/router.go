@@ -114,6 +114,10 @@ func Init(
 		// from config and registers the onboarding routes.
 		registerOnboarding(app, q, se, broadcaster, todoH, cfg.DagNats.HTTPAddr)
 
+		// Collaborative CRDT sync worker (jetstream build tag): subscribes
+		// to app.sync.> and persists resolved whiteboard docs to PocketBase.
+		registerCollabSync(se)
+
 		return se.Next()
 	})
 }
