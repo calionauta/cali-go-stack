@@ -108,9 +108,11 @@
 
 ### Exit criteria
 
-- [ ] `make desktop` produces a runnable macOS `.app` locally (Phase A)
-- [ ] Desktop app reuses existing router/handlers; `cmd/desktop/main.go`
-      < 200 lines
+- [x] `cmd/desktop/main.go` (< 200 lines) boots server.Run + PocketBase
+      goroutine + Wails webview via reverse proxy (Phase A done 2026-07-10)
+- [x] `go build ./cmd/desktop` compiles; `make desktop` produces the
+      `gogogo-desktop` binary (full `.app` bundle is Phase D via CI)
+- [x] Desktop reuses existing router/handlers via internal/server.Boot
 - [ ] Embedded NATS Leaf Node connects to central server NATS (Phase B)
 - [ ] `internal/collab` (Loro) compiles; doc create/encode/apply works
       in a unit test (Phase C)
