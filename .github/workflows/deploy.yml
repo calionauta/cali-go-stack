@@ -59,11 +59,10 @@ jobs:
   # ─────────────────────────────────────────────
   build:
     runs-on: ubuntu-latest
-    env:
-      GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
-
+      - name: Clean possibly-corrupted Go toolchain cache
+        run: rm -rf "$HOME/go/pkg/mod/golang.org/toolchain@*" || true
       - name: Set up Go
         uses: actions/setup-go@v5
         with:

@@ -45,11 +45,10 @@ jobs:
             artifact: gogogo-desktop-linux-amd64
             ext: .AppImage
     runs-on: ${{ matrix.runner }}
-    env:
-      GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
-
+      - name: Clean possibly-corrupted Go toolchain cache
+        run: rm -rf "$HOME/go/pkg/mod/golang.org/toolchain@*" || true
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26"

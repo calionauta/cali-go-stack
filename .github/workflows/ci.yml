@@ -12,10 +12,14 @@ jobs:
       matrix:
         tag: ["", "jetstream", "dagnats", "jetstream dagnats"]
     runs-on: ubuntu-latest
-    env:
-      GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
+      - name: Clean possibly-corrupted Go toolchain cache
+        # A prior run left a partially-extracted Go toolchain in the
+        # module cache; setup-go's tar then fails with "Cannot open: File
+        # exists" and `go` breaks ("no Go files"). Wipe it so the extract
+        # is clean.
+        run: rm -rf "$HOME/go/pkg/mod/golang.org/toolchain@*" || true
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26"
