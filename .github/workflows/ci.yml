@@ -40,6 +40,14 @@ jobs:
           # which aborts the whole job on infra flake rather than lint
           # failure. Disable the cache so lint runs every time.
           skip-cache: true
+      - name: Diagnose go test with tags
+        run: |
+          go version
+          pwd
+          echo "--- go list dagnats ---"
+          go list -tags dagnats ./... 2>&1 | head -5
+          echo "--- go test dagnats (verbose) ---"
+          go test -tags dagnats ./... 2>&1 | head -10
       - name: Test
         # DagNats boots an embedded NATS + workflow engine per package under
         # test; under -race, parallel packages starve the engine and cause
