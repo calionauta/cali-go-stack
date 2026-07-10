@@ -17,7 +17,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26"
-          check-latest: true
       - name: Generate templ
         run: go tool templ generate
       - name: Install C toolchain (CGO for loro-go)
@@ -38,6 +37,9 @@ jobs:
         # DagNats boots an embedded NATS + workflow engine per package under
         # test; under -race, parallel packages starve the engine and cause
         # flaky timeouts. Serialize packages (-p 1) for the dagnats tags.
+        # The runner checks out to github.workspace (which already includes
+        # the repo name on this image); pin it so go runs from the repo root.
+        working-directory: ${{ github.workspace }}
         run: |
           case "${{ matrix.tag }}" in
             "dagnats"|"jetstream dagnats") P=-p1 ;;
@@ -45,4 +47,5 @@ jobs:
           esac
           go test -tags "${{ matrix.tag }}" $P ./... -v -count=1
       - name: Build
+        working-directory: ${{ github.workspace }}
         run: go build -tags "${{ matrix.tag }}" -o /dev/null ./cmd/web/
