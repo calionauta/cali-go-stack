@@ -40,21 +40,10 @@ jobs:
           # which aborts the whole job on infra flake rather than lint
           # failure. Disable the cache so lint runs every time.
           skip-cache: true
-      - name: Diagnose go environment
-        run: |
-          go version
-          pwd
-          ls -la go.mod go.sum 2>&1 || echo "NO go.mod in cwd"
-          go env GOMOD GOMODCACHE GOPATH GOTOOLCHAIN
-          echo "--- go list ---"
-          go list ./... 2>&1 | head -20
       - name: Test
         # DagNats boots an embedded NATS + workflow engine per package under
         # test; under -race, parallel packages starve the engine and cause
         # flaky timeouts. Serialize packages (-p 1) for the dagnats tags.
-        # The runner checks out to github.workspace (which already includes
-        # the repo name on this image); pin it so go runs from the repo root.
-        working-directory: ${{ github.workspace }}
         run: |
           case "${{ matrix.tag }}" in
             "dagnats"|"jetstream dagnats") P=-p1 ;;
@@ -62,5 +51,4 @@ jobs:
           esac
           go test -tags "${{ matrix.tag }}" $P ./... -v -count=1
       - name: Build
-        working-directory: ${{ github.workspace }}
         run: go build -tags "${{ matrix.tag }}" -o /dev/null ./cmd/web/
