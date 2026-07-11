@@ -51,8 +51,12 @@ jobs:
         # Catches Datastar attribute/expression mistakes (e.g. data-on:click
         # vs data-on-click) that golangci-lint cannot see and that only
         # surface at runtime. -only-errors tolerates intentional custom
-        # attributes like data-tool.
-        run: make datastar-lint
+        # attributes like data-tool. Install the tool first (CI has no
+        # global datastar-lint), then run via the bin/ wrapper.
+        run: |
+          go install github.com/calionauta/datastar-lint@latest
+          export PATH="$HOME/go/bin:$PATH"
+          make datastar-lint
       - name: Set up Node (CSS build)
         uses: actions/setup-node@v4
         with:
