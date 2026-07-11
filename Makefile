@@ -55,7 +55,7 @@ test:
 # Docker build stage so contributors don't need to.
 css-install:
 	@echo "→ Installing CSS build dependencies (tailwindcss v4 + daisyui v5)..."
-	@npm install --silent
+	@npm ci --silent
 	@echo "  ✓ installed"
 
 # css runs the Tailwind v4 CLI to build web/resources/static/app.min.css
