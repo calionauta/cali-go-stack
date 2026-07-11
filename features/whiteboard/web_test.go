@@ -548,7 +548,9 @@ func readAll(resp *http.Response) string {
 // the "WB_DOC_ID missing / Unexpected token '.'" crash.
 //
 // Root cause: the board template emitted
-//   window.WB_DOC_ID = { templ.URL(docID) };
+//
+//	window.WB_DOC_ID = { templ.URL(docID) };
+//
 // templ.URL() escapes the doc id into a full URL (scheme://host/docID),
 // which is invalid JS — the browser threw "Unexpected token '.'" and the
 // entire whiteboard.js init aborted, so no shapes/presence/cursors ever
@@ -562,15 +564,18 @@ func TestWhiteboard_BoardPageRendersValidDocID(t *testing.T) {
 	baseURL, _, cleanup := webFixture(t)
 	defer cleanup()
 
-	jar, _ := cookiejar.New(nil)
+	jar, jarErr := cookiejar.New(nil)
+	if jarErr != nil {
+		t.Fatalf("cookiejar: %v", jarErr)
+	}
 	client := &http.Client{
-		Jar: jar,
+		Jar:           jar,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	login(t, client, baseURL)
 
 	docID := "doc-render-" + time.Now().Format("150405.000")
-	resp, err := client.Get(baseURL + "/whiteboard/" + docID)
+	resp, err := client.Do(mustReq(t, http.MethodGet, baseURL+"/whiteboard/"+docID))
 	if err != nil {
 		t.Fatalf("GET /whiteboard/%s: %v", docID, err)
 	}
@@ -586,7 +591,8 @@ func TestWhiteboard_BoardPageRendersValidDocID(t *testing.T) {
 	// `window.WB_DOC_ID = { templ.URL(docID) };` which rendered a full
 	// URL (invalid JS -> "Unexpected token '.'").
 	if !strings.Contains(body, `data-doc-id="`+docID+`"`) {
-		t.Fatalf("board page missing data-doc-id attribute for %s\nbody (first 400):\n%s", docID, body[:minLocal(len(body), 400)])
+		t.Fatalf("board page missing data-doc-id for %s\nbody (first 400):\n%s",
+			docID, body[:minLocal(len(body), 400)])
 	}
 	// The script must read the id from the DOM, not from a templ.URL()
 	// artifact. The broken form would contain "window.WB_DOC_ID = https://".
@@ -607,14 +613,17 @@ func TestWhiteboard_NewBoardRedirect(t *testing.T) {
 	baseURL, _, cleanup := webFixture(t)
 	defer cleanup()
 
-	jar, _ := cookiejar.New(nil)
+	jar, jarErr := cookiejar.New(nil)
+	if jarErr != nil {
+		t.Fatalf("cookiejar: %v", jarErr)
+	}
 	client := &http.Client{
-		Jar: jar,
+		Jar:           jar,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	login(t, client, baseURL)
 
-	resp, err := client.Get(baseURL + "/whiteboard/new")
+	resp, err := client.Do(mustReq(t, http.MethodGet, baseURL+"/whiteboard/new"))
 	if err != nil {
 		t.Fatalf("GET /whiteboard/new: %v", err)
 	}
@@ -636,15 +645,18 @@ func TestWhiteboard_BoardPageShowsLoggedInNav(t *testing.T) {
 	baseURL, _, cleanup := webFixture(t)
 	defer cleanup()
 
-	jar, _ := cookiejar.New(nil)
+	jar, jarErr := cookiejar.New(nil)
+	if jarErr != nil {
+		t.Fatalf("cookiejar: %v", jarErr)
+	}
 	client := &http.Client{
-		Jar: jar,
+		Jar:           jar,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	login(t, client, baseURL)
 
 	docID := "doc-nav-" + time.Now().Format("150405.000")
-	resp, err := client.Get(baseURL + "/whiteboard/" + docID)
+	resp, err := client.Do(mustReq(t, http.MethodGet, baseURL+"/whiteboard/"+docID))
 	if err != nil {
 		t.Fatalf("GET /whiteboard/%s: %v", docID, err)
 	}
@@ -664,4 +676,15 @@ func minLocal(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// mustReq builds an HTTP request with a background context (golangci-lint
+// noctx forbids client.Get, so callers use client.Do(mustReq(...))).
+func mustReq(t *testing.T, method, url string) *http.Request {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), method, url, nil)
+	if err != nil {
+		t.Fatalf("build %s %s: %v", method, url, err)
+	}
+	return req
 }

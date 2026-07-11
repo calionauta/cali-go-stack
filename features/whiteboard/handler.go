@@ -162,10 +162,18 @@ func (h *Handler) handleStream(c *core.RequestEvent) error {
 	// Announce this client joined so every other peer's "X online" count
 	// increments. Without this, a second tab opening the same board never
 	// received any event and the count stayed stuck at 1.
-	joinMsg, _ := json.Marshal(collab.PresenceMsg{Doc: docID, User: "client-" + clientID, Type: "join"})
+	joinMsg, mErr := json.Marshal(collab.PresenceMsg{Doc: docID, User: "client-" + clientID, Type: "join"})
+	if mErr != nil {
+		slog.Warn("whiteboard: marshal join", "error", mErr)
+		return fmt.Errorf("marshal join: %w", mErr)
+	}
 	h.hub.BroadcastExcept(joinMsg, clientID)
 	defer func() {
-		leaveMsg, _ := json.Marshal(collab.PresenceMsg{Doc: docID, User: "client-" + clientID, Type: "leave"})
+		leaveMsg, lErr := json.Marshal(collab.PresenceMsg{Doc: docID, User: "client-" + clientID, Type: "leave"})
+		if lErr != nil {
+			slog.Warn("whiteboard: marshal leave", "error", lErr)
+			return
+		}
 		h.hub.BroadcastExcept(leaveMsg, clientID)
 	}()
 

@@ -48,40 +48,52 @@ func TestIntegration_ListFiltersByOwner(t *testing.T) {
 		t.Fatalf("seed other user: %v", err)
 	}
 
-	// 4) Every filter variant must return exactly A's 3 todos.
+	// 4) Every filter variant must return exactly A's 3 todos (which are
+	// uncompleted, so they appear under all + active and NOT under
+	// completed), and never any of B's todos.
 	for _, filter := range []string{"all", "active", "completed"} {
-		resp, err := client.Get(base + "/api/todos?filter=" + filter)
-		if err != nil {
-			t.Fatalf("GET /api/todos?filter=%s: %v", filter, err)
+		assertFilter(t, client, base, filter)
+	}
+}
+
+// assertFilter fetches GET /api/todos?filter=<filter> and verifies owner
+// isolation: only A's (uncompleted) todos show, and B's never leak.
+func assertFilter(t *testing.T, client *http.Client, base, filter string) {
+	t.Helper()
+	req, rerr := http.NewRequestWithContext(context.Background(), http.MethodGet, base+"/api/todos?filter="+filter, nil)
+	if rerr != nil {
+		t.Fatalf("build GET %s: %v", filter, rerr)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/todos?filter=%s: %v", filter, err)
+	}
+	body := readBody(t, resp)
+
+	// Count occurrences of A's titles (should be present) and B's titles
+	// (should be absent). B's titles are "O1".."O5".
+	aSeen := 0
+	for _, title := range []string{"A1", "A2", "A3"} {
+		if strings.Contains(body, title) {
+			aSeen++
 		}
-		body := readBody(t, resp)
-		t.Logf("GET /api/todos?filter=%s -> %d body[0:120]=%q", filter, resp.StatusCode, body[:120])
-		// Count occurrences of A's titles (should be present) and B's
-		// titles (should be absent). B's titles are "O1".."O5".
-		aSeen := 0
-		for _, title := range []string{"A1", "A2", "A3"} {
-			if strings.Contains(body, title) {
-				aSeen++
-			}
+	}
+	bSeen := 0
+	for i := 1; i <= 5; i++ {
+		if strings.Contains(body, "O"+itoaLocal(i)) {
+			bSeen++
 		}
-		bSeen := 0
-		for i := 1; i <= 5; i++ {
-			if strings.Contains(body, "O"+itoaLocal(i)) {
-				bSeen++
-			}
-		}
-		// A's 3 todos are uncompleted, so they appear under all + active
-		// and must NOT appear under completed. B's todos must never appear.
-		wantA := 3
-		if filter == "completed" {
-			wantA = 0
-		}
-		if aSeen != wantA {
-			t.Errorf("filter=%s: expected A's %d todos, saw %d (bodylen=%d)", filter, wantA, aSeen, len(body))
-		}
-		if bSeen != 0 {
-			t.Errorf("filter=%s: OTHER user's %d todos leaked into A's list", filter, bSeen)
-		}
+	}
+
+	wantA := 3
+	if filter == "completed" {
+		wantA = 0
+	}
+	if aSeen != wantA {
+		t.Errorf("filter=%s: expected A's %d todos, saw %d (bodylen=%d)", filter, wantA, aSeen, len(body))
+	}
+	if bSeen != 0 {
+		t.Errorf("filter=%s: OTHER user's %d todos leaked into A's list", filter, bSeen)
 	}
 }
 
@@ -96,13 +108,16 @@ func loginClient(t *testing.T, base string) *http.Client {
 	}
 	client := &http.Client{
 		Jar: jar,
-		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return nil
 		},
 	}
 	ctx := context.Background()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, base+"/login",
+	req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, base+"/login",
 		strings.NewReader(url.Values{"email": {demoEmail}, "password": {demoPassword}, "next": {"/"}}.Encode()))
+	if reqErr != nil {
+		t.Fatalf("build login req: %v", reqErr)
+	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := client.Do(req)
 	if err != nil {
@@ -117,7 +132,10 @@ func loginClient(t *testing.T, base string) *http.Client {
 
 // cookieFor returns the gogogo_auth cookie value for base, or "".
 func cookieFor(client *http.Client, base string) string {
-	u, _ := url.Parse(base)
+	u, parseErr := url.Parse(base)
+	if parseErr != nil {
+		return ""
+	}
 	for _, c := range client.Jar.Cookies(u) {
 		if c.Name == "gogogo_auth" {
 			return c.Value
@@ -127,7 +145,9 @@ func cookieFor(client *http.Client, base string) string {
 }
 
 // mustPostCtx posts with a caller-supplied *http.Client (carrying auth).
-func mustPostCtx(ctx context.Context, t *testing.T, client *http.Client, base, path string, values url.Values, wantStatus int) {
+func mustPostCtx(ctx context.Context, t *testing.T, client *http.Client,
+	base, path string, values url.Values, wantStatus int,
+) {
 	t.Helper()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+path,
 		strings.NewReader(values.Encode()))
@@ -155,8 +175,8 @@ func seedOtherUserWithTodos(app core.App, email, prefix string, n int) error {
 	user := core.NewRecord(col)
 	user.SetEmail(email)
 	user.SetPassword("otherpass123")
-	if err := app.Save(user); err != nil {
-		return err
+	if serr := app.Save(user); serr != nil {
+		return serr
 	}
 	todos, err := app.FindCollectionByNameOrId("todos")
 	if err != nil {
@@ -195,4 +215,3 @@ func itoaLocal(n int) string {
 	}
 	return string(b[i:])
 }
-
