@@ -27,6 +27,13 @@ func (f *fakePersister) SaveSnapshot(docID string, snapshot []byte) error {
 	return nil
 }
 
+func (f *fakePersister) LoadSnapshot(docID string) ([]byte, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.snapshots[docID]
+	return s, ok
+}
+
 func (f *fakePersister) get(docID string) []byte {
 	f.mu.Lock()
 	defer f.mu.Unlock()

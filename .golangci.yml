@@ -89,6 +89,13 @@ linters:
       - path: internal/workflow/pb_data/
         linters:
           - all
+      # Test files repeat short literals (field names like "email",
+      # presence type tags) below the signal threshold; don't fail CI on
+      # goconst/mnd noise there.
+      - path: _test\.go
+        linters:
+          - goconst
+          - mnd
 formatters:
   enable:
     - gofumpt

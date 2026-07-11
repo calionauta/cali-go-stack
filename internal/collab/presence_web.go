@@ -60,7 +60,7 @@ func (p *WebPresence) OnChange(fn func(PresenceMsg)) {
 // PublishCursor broadcasts the local user's cursor (normalized 0..1),
 // refreshes the local roster entry, and forwards to peers.
 func (p *WebPresence) PublishCursor(clientID string, x, y float64) error {
-	msg := PresenceMsg{Type: "cursor", Doc: p.doc, User: p.user, X: x, Y: y, TS: time.Now().UnixMilli()}
+	msg := PresenceMsg{Type: presenceCursor, Doc: p.doc, User: p.user, X: x, Y: y, TS: time.Now().UnixMilli()}
 	p.mu.Lock()
 	p.roster[msg.User] = msg
 	p.mu.Unlock()
@@ -69,16 +69,23 @@ func (p *WebPresence) PublishCursor(clientID string, x, y float64) error {
 }
 
 // Subscribe starts receiving presence for the doc and begins heartbeating.
+const (
+	presenceJoin   = "join"
+	presenceLeave  = "leave"
+	presenceCursor = "cursor"
+)
+
+// Subscribe starts receiving presence for the doc and begins heartbeating.
 // It blocks until ctx is cancelled, then publishes a "leave" and returns.
 func (p *WebPresence) Subscribe(ctx context.Context, clientID string) error {
-	p.broadcast(clientID, PresenceMsg{Type: "join", Doc: p.doc, User: p.user, TS: time.Now().UnixMilli()})
+	p.broadcast(clientID, PresenceMsg{Type: presenceJoin, Doc: p.doc, User: p.user, TS: time.Now().UnixMilli()})
 
 	expire := time.NewTicker(p.ttl / 2)
 	beat := time.NewTicker(p.hb)
 	defer expire.Stop()
 	defer beat.Stop()
 	defer func() {
-		p.broadcast(clientID, PresenceMsg{Type: "leave", Doc: p.doc, User: p.user, TS: time.Now().UnixMilli()})
+		p.broadcast(clientID, PresenceMsg{Type: presenceLeave, Doc: p.doc, User: p.user, TS: time.Now().UnixMilli()})
 	}()
 
 	for {
@@ -86,7 +93,7 @@ func (p *WebPresence) Subscribe(ctx context.Context, clientID string) error {
 		case <-ctx.Done():
 			return nil
 		case <-beat.C:
-			p.broadcast(clientID, PresenceMsg{Type: "join", Doc: p.doc, User: p.user, TS: time.Now().UnixMilli()})
+			p.broadcast(clientID, PresenceMsg{Type: presenceJoin, Doc: p.doc, User: p.user, TS: time.Now().UnixMilli()})
 		case <-expire.C:
 			p.expireStale()
 		}
