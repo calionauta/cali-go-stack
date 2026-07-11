@@ -8065,6 +8065,9 @@
   .text-success {
     color: var(--color-success);
   }
+  .text-warning {
+    color: var(--color-warning);
+  }
   .italic {
     font-style: italic;
   }
