@@ -206,6 +206,40 @@ The pre-commit hook regenerates `app.min.css` automatically whenever
 `.templ` or `.go` files change, and `make check` includes a `css-check`
 step that fails the gate if the working CSS file is out of date.
 
+## Local CI (gh-signoff)
+
+Pushing to `master` triggers GitHub Actions (`ci.yml` runs the full tag
+matrix, then `deploy.yml` ships to production). You can run that **exact
+gate on your own machine** before pushing, so you don't wait on remote
+runners (and don't push a broken commit).
+
+We use [gh-signoff](https://github.com/basecamp/gh-signoff) — a GitHub CLI
+extension that stamps a green commit status after your local tests pass.
+
+```bash
+# one-time: install the extension
+gh extension install basecamp/gh-signoff
+
+# before every push: run the full CI matrix locally, then sign off
+make signoff
+```
+
+`make signoff` runs `make ci-local` (templ generate → golangci-lint →
+datastar-lint → CSS check → `go test -race` across **all four** tag combos
+`""` / `jetstream` / `dagnats` / `jetstream dagnats`, dagnats serialized
+with `-p 1` → `go build` for all combos) and then stamps the current
+commit green with `gh signoff`. `make ci-local` uses `golangci-lint` as the
+authoritative formatter/lint gate (the same linter CI runs) rather than
+the standalone `gofumpt` binary, which can be a newer release than the one
+golangci-lint bundles and would otherwise produce false-positive listings.
+
+> **Advisory status, by design.** This repo deploys on **push to `master`**
+> (not PR merge), so the signoff status is a *signal*, not a hard gate.
+> We deliberately do **not** run `gh signoff install` (which would require
+> the status for PR merge) — it would be meaningless for a push-to-deploy
+> flow. If/when you move to a PR-based workflow, enable
+> `gh signoff install` to make signoff a merge requirement.
+
 ## Desktop & Mobile (Wails v3 + Loro CRDT + NATS Leaf Node)
 
 The same Go backend (PocketBase + queue + router + handlers) also runs as a
