@@ -61,11 +61,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: CSS check
-        # Fails if web/resources/static/app.min.css is out of sync with the
-        # .templ sources. Rebuilds and diffs so a stale stylesheet can never
-        # reach main unnoticed.
-        run: make css-check
+      - name: CSS build
+        # Rebuild app.min.css for the CI platform before test/build so the
+        # //go:embed picks up a fresh, correct stylesheet. We do NOT run
+        # `make css-check` (which diffs against the committed file) here:
+        # the committed CSS is built on the developer's platform (e.g. macOS)
+        # and the native Tailwind oxide binary emits platform-specific bytes,
+        # so a cross-platform byte-diff would always fail. Stale-CSS
+        # detection stays in the local pre-commit hook (same platform).
+        run: make css
       - name: Diagnose go test with tags
         run: |
           go version
