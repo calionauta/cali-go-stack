@@ -203,6 +203,11 @@ func (h *Handler) handleStream(c *core.RequestEvent) error {
 			flusher.Flush()
 		}
 	}
+	// Broadcast the authoritative, full peer set to EVERY connected client
+	// (including this one) so all tabs converge on the same "X online"
+	// count even after reconnects or a missed leave. Clients render the
+	// count directly from this event instead of incrementing counters.
+	h.broadcastPeerCount(docID)
 	// shapes immediately (in case it opened before any live update).
 	if shapes := h.worker.Shapes(docID); len(shapes) > 0 {
 		payload, err := json.Marshal(collab.WebShapesEvent{Type: "shapes", Doc: docID, From: "", Shapes: shapes})
@@ -266,6 +271,37 @@ func (h *Handler) peerLeave(docID, clientID string) {
 		return
 	}
 	h.hub.BroadcastExcept(leaveMsg, clientID)
+	// Re-broadcast the authoritative count to the remaining clients so the
+	// "X online" number drops consistently everywhere (no stale +1 from a
+	// missed leave).
+	h.broadcastPeerCount(docID)
+}
+
+// peerList returns the current set of clientIDs connected to docID
+// (including the caller). Callers must NOT hold peersMu.
+func (h *Handler) peerList(docID string) []string {
+	h.peersMu.Lock()
+	defer h.peersMu.Unlock()
+	set := h.peers[docID]
+	out := make([]string, 0, len(set))
+	for id := range set {
+		out = append(out, id)
+	}
+	return out
+}
+
+// broadcastPeerCount sends the authoritative, full peer set for docID to
+// every connected client (including the originator). Clients render the
+// "X online" count directly from this event instead of incrementing
+// counters client-side, so every tab agrees on the same number even when
+// a leave is missed or a tab reconnects with a fresh client id.
+func (h *Handler) broadcastPeerCount(docID string) {
+	msg, err := json.Marshal(collab.PresenceMsg{Doc: docID, Type: "count", Peers: h.peerList(docID)})
+	if err != nil {
+		slog.Warn("whiteboard: marshal peer count", "error", err)
+		return
+	}
+	h.hub.Broadcast(msg)
 }
 
 // handleUpdate receives a Loro update from a client, merges it into the

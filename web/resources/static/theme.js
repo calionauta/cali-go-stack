@@ -108,22 +108,32 @@
     else if (mq.addListener) mq.addListener(listener); // Safari < 14
   }
 
-  // Initial icon sync: ensure exactly one toggle icon is visible based
-  // on the theme already applied by ThemeHead before paint.
-  syncIcons(current());
+  // Initial icon sync: ensure exactly one toggle icon is visible based on
+  // the theme already applied by ThemeHead before paint. Wrapped so a
+  // transient icon error can never block the toggle binding above.
+  try {
+    syncIcons(current());
+  } catch (e) {
+    /* non-fatal: theme still applies; only the icon glyph may flicker */
+  }
 
-  // Bind the navbar toggle button natively so dark/light switching works
-  // on every page — including the whiteboard, which deliberately does NOT
-  // load Datastar (its canvas wiring lives in plain JS). The button can no
-  // longer rely on a Datastar `data-on:click` expression, so we wire a
-  // plain listener here instead. Idempotent: re-running never double-binds.
+  // Bind the navbar toggle via a single delegated document listener so
+  // dark/light switching works on EVERY page — including the whiteboard,
+  // which deliberately does NOT load Datastar (its canvas wiring lives in
+  // plain JS). The button cannot rely on a Datastar data-on:click there.
+  // Delegation is idempotent (guarded by __themeDelegated) and survives any
+  // navbar re-render or script load-order quirk, so a missed initial bind
+  // can never leave the toggle inert.
+  function toggleFromEvent(e) {
+    var t = e.target && e.target.closest ? e.target.closest(".theme-toggle") : null;
+    if (!t) return;
+    e.preventDefault();
+    if (window.Theme) window.Theme.toggle();
+  }
   function bindToggle() {
-    var btn = document.querySelector(".theme-toggle");
-    if (!btn || btn.__themeBound) return;
-    btn.__themeBound = true;
-    btn.addEventListener("click", function () {
-      if (window.Theme) window.Theme.toggle();
-    });
+    if (document.__themeDelegated) return;
+    document.__themeDelegated = true;
+    document.addEventListener("click", toggleFromEvent);
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", bindToggle);

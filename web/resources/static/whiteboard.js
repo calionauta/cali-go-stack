@@ -162,7 +162,7 @@
   canvas.addEventListener("pointermove", function (e) {
     const p = localPos(e);
     const r = canvas.getBoundingClientRect();
-    postPresence((p.x / r.width).toFixed(4), (p.y / r.height).toFixed(4));
+    postPresence(parseFloat((p.x / r.width).toFixed(4)), parseFloat((p.y / r.height).toFixed(4)));
     if (!drawing) return;
     if (tool === "pen") {
       drawing.points.push(p.x, p.y);
@@ -257,6 +257,19 @@
   }
   function handlePresence(msg) {
     if (msg.user === user) return; // ignore our own echoes
+    if (msg.type === "count") {
+      // Authoritative peer set from the server: seed the peer map (minus
+      // self) so the "X online" count and remote cursors stay consistent
+      // across every tab — even after reconnects or a missed leave. The
+      // server broadcasts the full set (including us); we drop self.
+      peers = {};
+      (msg.peers || []).forEach(function (p) {
+        if (p !== user) peers[p] = peers[p] || { x: 0.5, y: 0.5, ts: Date.now() };
+      });
+      updatePeerCount();
+      renderCursors();
+      return;
+    }
     if (msg.type === "snapshot") {
       // Seed the peer set from the server's list of already-connected
       // clients (we were the last to arrive, so we missed their joins).
