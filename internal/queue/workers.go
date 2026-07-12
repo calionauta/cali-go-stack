@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"sync"
 	"time"
@@ -87,7 +88,8 @@ func (wp *WorkerPool) worker(id int) {
 			return // Queue was closed; stop draining.
 		}
 
-		msg, err := q.Receive(ctx)
+		msg, err := q.ReceiveAndWait(ctx, time.Second)
+		slog.Info("queue worker: received", "worker_id", id, "has_msg", msg != nil, "err", err)
 		if err != nil {
 			select {
 			case <-wp.stopCh:
@@ -126,6 +128,7 @@ func (wp *WorkerPool) processMessage(ctx context.Context, msg *goqite.Message) {
 	if msg == nil {
 		return
 	}
+	slog.Info("queue worker: processMessage", "type", jobTypeOf(msg.Body))
 	job, err := DecodeJob(msg.Body)
 	if err != nil {
 		// Decode failures are non-retryable: bad bytes will never parse.
@@ -146,6 +149,12 @@ func (wp *WorkerPool) processMessage(ctx context.Context, msg *goqite.Message) {
 		slog.Error("queue worker: handler failed after retries",
 			"worker_id", -1, "type", job.Type, "client_id", clientID, "error", err)
 	}
+}
+
+func jobTypeOf(body []byte) string {
+	var j struct{ Type string `json:"type"` }
+	_ = json.Unmarshal(body, &j)
+	return j.Type
 }
 
 // qGuard returns the underlying goqite queue or nil if it has been closed.

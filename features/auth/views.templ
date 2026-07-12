@@ -24,10 +24,9 @@ templ Navbar(userEmail string, active string) {
 		<div class="navbar-end gap-2">
 			<button
 				type="button"
-				class="btn btn-ghost btn-sm btn-circle"
+				class="btn btn-ghost btn-sm btn-circle theme-toggle"
 				aria-label="Alternar tema"
 				title="Alternar tema claro/escuro"
-				data-on:click="window.Theme && window.Theme.toggle()"
 			>
 				<iconify-icon icon="material-symbols:dark-mode" class="text-lg theme-toggle-icon icon-dark-mode"></iconify-icon>
 				<iconify-icon icon="material-symbols:light-mode" class="text-lg theme-toggle-icon icon-light-mode"></iconify-icon>

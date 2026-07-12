@@ -16,6 +16,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	_ "github.com/ncruces/go-sqlite3/driver"
@@ -102,7 +103,10 @@ var ErrQueueClosed = errors.New("queue: closed")
 // Enqueue wraps goqite.Send with a typed body. The data must already be
 // a marshalled queue.Job envelope when going through HandlerRegistry.
 func (q *Queue) Enqueue(ctx context.Context, data []byte) error {
-	return q.q.Send(ctx, goqite.Message{Body: data})
+	slog.Info("queue: Enqueue called", "body_len", len(data))
+	err := q.q.Send(ctx, goqite.Message{Body: data})
+	slog.Info("queue: Enqueue result", "err", err)
+	return err
 }
 
 // ReceiveAndWait blocks for up to timeout waiting for a message.

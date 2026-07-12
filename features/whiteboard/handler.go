@@ -19,6 +19,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,6 +42,13 @@ type Handler struct {
 	app    core.App
 	hub    *queue.SSEHub
 	worker *collab.WebSyncWorker
+
+	// peers tracks, per doc, the set of clientIDs currently connected to
+	// that doc's SSE stream. It is the authoritative source for the
+	// "X online" count so the number is consistent across every tab
+	// (each tab computes count = peers + self from the same events).
+	peersMu sync.Mutex
+	peers   map[string]map[string]struct{}
 }
 
 // New builds a whiteboard handler. persister is the PocketBase whiteboards
@@ -50,6 +58,7 @@ func New(app core.App, hub *queue.SSEHub, persister collab.Persister) *Handler {
 		app:    app,
 		hub:    hub,
 		worker: collab.NewWebSyncWorker(hub, persister),
+		peers:  make(map[string]map[string]struct{}),
 	}
 }
 
@@ -159,27 +168,41 @@ func (h *Handler) handleStream(c *core.RequestEvent) error {
 	fmt.Fprintf(c.Response, ": connected %s\n\n", docID)
 	flusher.Flush()
 
-	// Announce this client joined so every other peer's "X online" count
-	// increments. Without this, a second tab opening the same board never
-	// received any event and the count stayed stuck at 1.
-	joinMsg, mErr := json.Marshal(collab.PresenceMsg{Doc: docID, User: "client-" + clientID, Type: "join"})
+	// Register the client BEFORE announcing presence so that the
+	// join broadcast and the per-peer snapshot below are both computed
+		// against a hub that already knows about this client. (Previously the
+	// join was broadcast before Register, which meant a client that opened
+		// the board after others never learned those peers existed, leaving
+		// the "X online" count wrong.)
+	ch := make(chan []byte, sseChanBuf)
+	h.hub.Register(clientID, ch)
+	defer func() {
+		h.hub.Unregister(clientID)
+		h.peerLeave(docID, clientID)
+	}()
+
+	// Track this peer and compute the current peer set (everyone else
+	// already on the doc). We send a join to the OTHERS and a snapshot
+	// (the existing peer list) to SELF so every tab converges on the
+	// same count regardless of connect order.
+	others := h.peerJoin(docID, clientID)
+
+	joinMsg, mErr := json.Marshal(collab.PresenceMsg{Doc: docID, User: clientID, Type: "join"})
 	if mErr != nil {
 		slog.Warn("whiteboard: marshal join", "error", mErr)
 		return fmt.Errorf("marshal join: %w", mErr)
 	}
 	h.hub.BroadcastExcept(joinMsg, clientID)
-	defer func() {
-		leaveMsg, lErr := json.Marshal(collab.PresenceMsg{Doc: docID, User: "client-" + clientID, Type: "leave"})
-		if lErr != nil {
-			slog.Warn("whiteboard: marshal leave", "error", lErr)
-			return
-		}
-		h.hub.BroadcastExcept(leaveMsg, clientID)
-	}()
 
-	ch := make(chan []byte, sseChanBuf)
-	h.hub.Register(clientID, ch)
-	defer h.hub.Unregister(clientID)
+	if len(others) > 0 {
+		snap, sErr := json.Marshal(collab.PresenceMsg{Doc: docID, User: clientID, Type: "snapshot", Peers: others})
+		if sErr != nil {
+			slog.Warn("whiteboard: marshal snapshot", "error", sErr)
+		} else {
+			fmt.Fprintf(c.Response, "data: %s\n\n", snap)
+			flusher.Flush()
+		}
+	}
 	// shapes immediately (in case it opened before any live update).
 	if shapes := h.worker.Shapes(docID); len(shapes) > 0 {
 		payload, err := json.Marshal(collab.WebShapesEvent{Type: "shapes", Doc: docID, From: "", Shapes: shapes})
@@ -201,6 +224,48 @@ func (h *Handler) handleStream(c *core.RequestEvent) error {
 			flusher.Flush()
 		}
 	}
+}
+
+// peerJoin registers clientID as connected to docID and returns the list
+// of clientIDs that were ALREADY on the doc (the peers the new client
+// should learn about). It is called on SSE connect. The returned slice
+// (possibly empty) is sent to the new client as a "snapshot" presence
+// event so it can seed its peer count without waiting for future joins.
+func (h *Handler) peerJoin(docID, clientID string) []string {
+	h.peersMu.Lock()
+	defer h.peersMu.Unlock()
+	set := h.peers[docID]
+	if set == nil {
+		set = make(map[string]struct{})
+		h.peers[docID] = set
+	}
+	others := make([]string, 0, len(set))
+	for id := range set {
+		if id != clientID {
+			others = append(others, id)
+		}
+	}
+	set[clientID] = struct{}{}
+	return others
+}
+
+// peerLeave removes clientID from docID's peer set and broadcasts a
+// "leave" to every remaining client. Called on SSE disconnect.
+func (h *Handler) peerLeave(docID, clientID string) {
+	h.peersMu.Lock()
+	if set, ok := h.peers[docID]; ok {
+		delete(set, clientID)
+		if len(set) == 0 {
+			delete(h.peers, docID)
+		}
+	}
+	h.peersMu.Unlock()
+	leaveMsg, lErr := json.Marshal(collab.PresenceMsg{Doc: docID, User: clientID, Type: "leave"})
+	if lErr != nil {
+		slog.Warn("whiteboard: marshal leave", "error", lErr)
+		return
+	}
+	h.hub.BroadcastExcept(leaveMsg, clientID)
 }
 
 // handleUpdate receives a Loro update from a client, merges it into the
@@ -225,6 +290,19 @@ func (h *Handler) handleUpdate(c *core.RequestEvent) error {
 	shapes, err := h.worker.ApplyOp(docID, from, op)
 	if err != nil {
 		return c.String(http.StatusBadRequest, "apply op: "+err.Error())
+	}
+	// Broadcast the resolved shapes to EVERY client on the doc (including
+	// the originator). The originator drew optimistically and cleared its
+	// in-progress shape on pointerup; receiving the authoritative shapes
+	// back keeps it convergent and — critically — means the local tab does
+	// NOT lose the shape it just drew (the earlier BroadcastExcept excluded
+	// the originator, so the local tab's shape list was never refreshed and
+	// the drawing vanished on that tab while persisting on others).
+	payload, mErr := json.Marshal(collab.WebShapesEvent{Type: "shapes", Doc: docID, From: from, Shapes: shapes})
+	if mErr != nil {
+		slog.Warn("whiteboard: marshal shapes", "error", mErr)
+	} else {
+		h.hub.Broadcast(payload)
 	}
 	return c.JSON(http.StatusOK, map[string]any{"ok": true, "count": len(shapes)})
 }

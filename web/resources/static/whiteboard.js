@@ -24,7 +24,10 @@
   const clientID =
     new URLSearchParams(location.search).get("clientID") ||
     "wb-" + Math.random().toString(36).slice(2, 10);
-  const user = "user-" + clientID.slice(3, 8);
+  // Identity used for presence: the same clientID the server tags join/
+  // leave/cursor events with, so we can ignore our own echoes and count
+  // peers consistently with every other tab.
+  const user = clientID;
 
   const canvas = document.getElementById("wb-canvas");
   const wrap = document.getElementById("canvas-wrap");
@@ -72,15 +75,11 @@
   stream.onopen = function () {
     flushOutbox();
     updateNetStatus();
-    // Announce our presence so peers increment their online count.
-    fetch(
-      "/api/whiteboard/" + encodeURIComponent(docID) + "/presence?clientID=" + encodeURIComponent(clientID),
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "join", doc: docID, user: user }),
-      }
-    ).catch(function () {});
+    // NOTE: presence join/leave is owned by the SERVER (handleStream
+    // broadcasts a join to peers on connect and a leave on disconnect,
+    // plus a snapshot of existing peers to the newcomer). The client must
+    // NOT post its own join here — doing so double-counted peers and made
+    // the "X online" number wrong. Cursors are still posted on mousemove.
   };
 
   // ---- network status indicator ----
@@ -88,8 +87,12 @@
     const el = document.getElementById("net-status");
     if (!el) return;
     const online = navigator.onLine;
-    el.textContent = online ? "online" : "offline — drawing is buffered";
-    el.className = "text-xs " + (online ? "text-success" : "text-warning");
+    if (online) {
+      el.classList.add("hidden");
+    } else {
+      el.classList.remove("hidden");
+      el.textContent = "offline — drawing is buffered";
+    }
   }
   window.addEventListener("online", function () { updateNetStatus(); flushOutbox(); });
   window.addEventListener("offline", updateNetStatus);
@@ -183,6 +186,13 @@
       render();
       return;
     }
+    // Optimistically add the shape to our local list so it stays visible
+    // even before the server broadcasts the authoritative shapes back.
+    // The server broadcasts to EVERY client (including us), so the local
+    // list converges to the same state as everyone else — no flicker, no
+    // lost drawing on the local tab.
+    shapes = shapes.concat([done]);
+    render();
     postOp({ op: "add", shape: done });
   });
 
@@ -246,7 +256,17 @@
     if (el) el.textContent = String(Object.keys(peers).length + 1); // +self
   }
   function handlePresence(msg) {
-    if (msg.user === user) return;
+    if (msg.user === user) return; // ignore our own echoes
+    if (msg.type === "snapshot") {
+      // Seed the peer set from the server's list of already-connected
+      // clients (we were the last to arrive, so we missed their joins).
+      (msg.peers || []).forEach(function (p) {
+        if (p !== user) peers[p] = peers[p] || { x: 0.5, y: 0.5, ts: Date.now() };
+      });
+      updatePeerCount();
+      renderCursors();
+      return;
+    }
     // A leave from a peer we never tracked is harmless.
     if (msg.type === "join") {
       peers[msg.user] = msg;

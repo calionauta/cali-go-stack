@@ -6,7 +6,7 @@ package components
 //
 // WHY THE HIDDEN-BUTTON + SCRIPT PATTERN (not data-on:load):
 // Datastar v1 does not fire data-on:load / data-on:init on <div> or <body>,
-// so a card using `data-on:load={ "@get('/api/todos/stream')" }` silently
+// so a card using `data-on:load={ "@get('/api/todos/stream') }` silently
 // never opened the stream — broadcasts were registered on the server but no
 // browser ever received them, and the connected-clients count stayed wrong.
 // The fix is a hidden button whose data-on:click is a real @get (Datastar
@@ -14,24 +14,50 @@ package components
 // signals readiness. Centralising it here means a single regression test can
 // assert the opener + script are present on every page.
 //
+// CLIENT ID (the realtime identity):
+// Each browser TAB gets a stable clientID, persisted in sessionStorage so a
+// reload keeps the same id (and thus keeps its SSE registration instead of
+// leaking a new one). The SSE stream is opened WITH that clientID, and every
+// todo mutation POSTs the SAME clientID. The server uses it for
+// BroadcastExcept, so the originator is excluded from the re-render while
+// EVERY OTHER tab (focused or backgrounded) receives the broadcast. Without
+// the shared id, mutations can't be excluded from the originator and other
+// tabs silently miss updates.
+//
+// VISIBILITY-RESILIENT RECONNECT:
+// Browsers throttle/pause EventSource when a tab is backgrounded, so a
+// backgrounded tab can miss SSE frames. We listen for visibilitychange and
+// re-open the stream when the tab becomes visible again (Datastar dedupes
+// duplicate permanent streams, and the server's replay buffer replays
+// events the tab missed while hidden). This makes realtime work regardless
+// of which tab/window currently has focus — the user never has to be
+// looking at the tab to receive updates.
+//
 // streamURL is the SSE endpoint to open (e.g. "/api/todos/stream"). Other
 // features pass their own endpoint; the mechanism is identical.
 templ RealtimeStream(streamURL string) {
 	<button
 		id="sse-opener"
 		class="hidden"
-		data-on:click={ "@get('" + streamURL + "', { permanent: true })" }
+		data-on:click={ "@get('" + streamURL + "?clientID=' + encodeURIComponent(window.__gogogoClientID || '') + '', { permanent: true })" }
 		aria-hidden="true"
 	></button>
 	<script type="module">
-		// Open the realtime SSE stream once Datastar has initialised.
-		// Datastar v1 does not fire data-on:load/init on <div>/<body>, so we
-		// click the hidden #sse-opener button (whose data-on:click is a real
-		// @get that Datastar keeps open as a persistent SSE). Datastar
-		// dispatches the "datastar-ready" event when it has processed the
-		// DOM; we click on that, with a timeout fallback in case the event
-		// already fired before this listener attached.
+		// Stable per-tab client id. Persisted in sessionStorage so a reload
+		// reuses the same id (no leaked SSE registration on the server) and
+		// every mutation POSTs the matching id for BroadcastExcept.
 		(function () {
+			try {
+				var id = sessionStorage.getItem('gogogo_client_id');
+				if (!id) {
+					id = 'tab-' + Math.random().toString(36).slice(2, 10);
+					sessionStorage.setItem('gogogo_client_id', id);
+				}
+				window.__gogogoClientID = id;
+			} catch (e) {
+				window.__gogogoClientID = 'tab-' + Math.random().toString(36).slice(2, 10);
+			}
+
 			function openSSE() {
 				var b = document.getElementById('sse-opener');
 				if (b && !b.dataset.opened) { b.dataset.opened = '1'; b.click(); }
@@ -39,6 +65,19 @@ templ RealtimeStream(streamURL string) {
 			document.addEventListener('datastar-ready', openSSE);
 			// Fallback if datastar-ready already fired.
 			setTimeout(openSSE, 300);
+
+			// Re-open when the tab returns to the foreground: backgrounded
+			// tabs have their EventSource throttled/paused by the browser, so
+			// they can miss frames. Re-clicking the opener makes Datastar
+			// re-establish the permanent stream (the server replays missed
+			// events via its buffer). This keeps realtime working for tabs the
+			// user is NOT currently looking at.
+			document.addEventListener('visibilitychange', function () {
+				if (!document.hidden) {
+					var b = document.getElementById('sse-opener');
+					if (b) { b.dataset.opened = ''; openSSE(); }
+				}
+			});
 		})();
 	</script>
 }

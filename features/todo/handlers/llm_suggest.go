@@ -77,7 +77,7 @@ func (h *TodoHandler) enqueueSuggest(c *core.RequestEvent, jobType, partial stri
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "marshal job failed")
 	}
-	if err := h.q.Enqueue(c.Request.Context(), body); err != nil {
+	if err := h.q.Enqueue(context.Background(), body); err != nil {
 		return c.String(http.StatusInternalServerError, "enqueue failed: "+err.Error())
 	}
 

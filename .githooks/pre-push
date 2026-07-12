@@ -9,11 +9,10 @@ cd "$PROJECT_DIR"
 
 echo "━━━ Pre-push checks ━━━"
 echo "→ govulncheck..."
-if which govulncheck >/dev/null 2>&1; then
-    govulncheck ./... || { echo "❌ Vulnerability scan failed"; exit 2; }
-    echo "  ✓"
-else
-    echo "  ⚠ govulncheck not installed (go install golang.org/x/vuln/cmd/govulncheck@latest)"
-    echo "  Skipping — install before relying on this gate."
+if ! which govulncheck >/dev/null 2>&1; then
+    echo "  → Installing govulncheck..."
+    go install golang.org/x/vuln/cmd/govulncheck@latest
 fi
+govulncheck ./... || { echo "❌ Vulnerability scan failed"; exit 2; }
+echo "  ✓"
 echo "━━━ Pre-push passed ✓ ━━━"

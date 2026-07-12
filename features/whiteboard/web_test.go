@@ -228,12 +228,16 @@ func (s *wbStream) drain(window time.Duration) []string {
 //     every OTHER client (exclude-origin).
 //   - clientB (a different SSE connection, same doc) MUST receive the
 //     shapes event with the new shape.
-//   - clientA MUST NOT receive its own shape echoed back (exclude-origin,
-//     mirroring the todo fix).
+//   - clientA MUST receive the shapes broadcast too (the client draws
+//     optimistically and the server is authoritative, so re-broadcasting
+//     to everyone — including the originator — keeps every tab convergent
+//     and prevents the local tab from losing the shape it just drew, which
+//     is what the old exclude-origin behaviour caused).
+//   - clientB MUST receive the same shape broadcast.
 //   - The persister MUST hold the saved snapshot (PocketBase in prod).
 //
 // This proves the full architecture without a browser: SSE transport +
-// CRDT convergence + persistence + exclude-origin.
+// CRDT convergence + persistence + consistent broadcast to all peers.
 func TestWhiteboard_ShapeBroadcastAndPersist(t *testing.T) {
 	baseURL, persister, cleanup := webFixture(t)
 	defer cleanup()
@@ -288,9 +292,9 @@ func TestWhiteboard_ShapeBroadcastAndPersist(t *testing.T) {
 	if !shapesEventContains(bEvents, "s1") {
 		t.Fatalf("PEER (clientB) did not receive the shape broadcast.\nB events:\n%s", debugEvents(bEvents))
 	}
-	if shapesEventContains(aEvents, "s1") {
-		t.Fatalf("ORIGINATOR (clientA) received its own shape echo "+
-			"(exclude-origin broken).\nA events:\n%s", debugEvents(aEvents))
+	if !shapesEventContains(aEvents, "s1") {
+		t.Fatalf("ORIGINATOR (clientA) did not receive the shapes broadcast "+
+			"(it draws optimistically and must converge on the authoritative shapes).\nA events:\n%s", debugEvents(aEvents))
 	}
 
 	// Persistence: the in-memory persister must hold the snapshot for docID.

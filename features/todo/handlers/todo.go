@@ -247,7 +247,7 @@ func (h *TodoHandler) RegisterHandlers(reg *queue.HandlerRegistry) {
 // to every connected client (see handleRetryDemoJob). Triggered from the
 // Techstack/Diagnostics panel in the UI.
 func (h *TodoHandler) handleEnqueueRetryDemo(c *core.RequestEvent) error {
-	if err := h.q.Enqueue(c.Request.Context(), mustJSON(queue.Job{Type: "retry_demo"})); err != nil {
+	if err := h.q.Enqueue(context.Background(), mustJSON(queue.Job{Type: "retry_demo"})); err != nil {
 		return c.String(statusInternal, "enqueue failed")
 	}
 	sse := sdk.NewSSE(c.Response, c.Request)

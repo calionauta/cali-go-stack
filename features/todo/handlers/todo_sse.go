@@ -36,6 +36,7 @@ func (h *TodoHandler) handleSSEStream(c *core.RequestEvent) error {
 	sse := sdk.NewSSE(c.Response, c.Request)
 	ch := make(chan []byte, sseClientBuffer)
 	h.q.Hub().Register(clientID, ch)
+	slog.Info("todo: sse registered", "clientID", clientID, "total", h.q.Hub().Stats().Clients)
 	defer func() {
 		h.q.Hub().Unregister(clientID)
 		h.broadcastClientCount()

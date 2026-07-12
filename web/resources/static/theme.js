@@ -111,4 +111,23 @@
   // Initial icon sync: ensure exactly one toggle icon is visible based
   // on the theme already applied by ThemeHead before paint.
   syncIcons(current());
+
+  // Bind the navbar toggle button natively so dark/light switching works
+  // on every page — including the whiteboard, which deliberately does NOT
+  // load Datastar (its canvas wiring lives in plain JS). The button can no
+  // longer rely on a Datastar `data-on:click` expression, so we wire a
+  // plain listener here instead. Idempotent: re-running never double-binds.
+  function bindToggle() {
+    var btn = document.querySelector(".theme-toggle");
+    if (!btn || btn.__themeBound) return;
+    btn.__themeBound = true;
+    btn.addEventListener("click", function () {
+      if (window.Theme) window.Theme.toggle();
+    });
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bindToggle);
+  } else {
+    bindToggle();
+  }
 })();

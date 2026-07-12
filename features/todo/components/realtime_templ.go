@@ -14,13 +14,32 @@ import templruntime "github.com/a-h/templ/runtime"
 //
 // WHY THE HIDDEN-BUTTON + SCRIPT PATTERN (not data-on:load):
 // Datastar v1 does not fire data-on:load / data-on:init on <div> or <body>,
-// so a card using `data-on:load={ "@get('/api/todos/stream')" }` silently
+// so a card using `data-on:load={ "@get('/api/todos/stream') }` silently
 // never opened the stream — broadcasts were registered on the server but no
 // browser ever received them, and the connected-clients count stayed wrong.
 // The fix is a hidden button whose data-on:click is a real @get (Datastar
 // keeps that open as a persistent SSE), clicked by this script once Datastar
 // signals readiness. Centralising it here means a single regression test can
 // assert the opener + script are present on every page.
+//
+// CLIENT ID (the realtime identity):
+// Each browser TAB gets a stable clientID, persisted in sessionStorage so a
+// reload keeps the same id (and thus keeps its SSE registration instead of
+// leaking a new one). The SSE stream is opened WITH that clientID, and every
+// todo mutation POSTs the SAME clientID. The server uses it for
+// BroadcastExcept, so the originator is excluded from the re-render while
+// EVERY OTHER tab (focused or backgrounded) receives the broadcast. Without
+// the shared id, mutations can't be excluded from the originator and other
+// tabs silently miss updates.
+//
+// VISIBILITY-RESILIENT RECONNECT:
+// Browsers throttle/pause EventSource when a tab is backgrounded, so a
+// backgrounded tab can miss SSE frames. We listen for visibilitychange and
+// re-open the stream when the tab becomes visible again (Datastar dedupes
+// duplicate permanent streams, and the server's replay buffer replays
+// events the tab missed while hidden). This makes realtime work regardless
+// of which tab/window currently has focus — the user never has to be
+// looking at the tab to receive updates.
 //
 // streamURL is the SSE endpoint to open (e.g. "/api/todos/stream"). Other
 // features pass their own endpoint; the mechanism is identical.
@@ -50,15 +69,15 @@ func RealtimeStream(streamURL string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var2 string
-		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.ResolveAttributeValue("@get('" + streamURL + "', { permanent: true })")
+		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.ResolveAttributeValue("@get('" + streamURL + "?clientID=' + encodeURIComponent(window.__gogogoClientID || '') + '', { permanent: true })")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/todo/components/realtime.templ`, Line: 23, Col: 66}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/todo/components/realtime.templ`, Line: 42, Col: 133}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var2)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" aria-hidden=\"true\"></button><script type=\"module\">\n\t\t// Open the realtime SSE stream once Datastar has initialised.\n\t\t// Datastar v1 does not fire data-on:load/init on <div>/<body>, so we\n\t\t// click the hidden #sse-opener button (whose data-on:click is a real\n\t\t// @get that Datastar keeps open as a persistent SSE). Datastar\n\t\t// dispatches the \"datastar-ready\" event when it has processed the\n\t\t// DOM; we click on that, with a timeout fallback in case the event\n\t\t// already fired before this listener attached.\n\t\t(function () {\n\t\t\tfunction openSSE() {\n\t\t\t\tvar b = document.getElementById('sse-opener');\n\t\t\t\tif (b && !b.dataset.opened) { b.dataset.opened = '1'; b.click(); }\n\t\t\t}\n\t\t\tdocument.addEventListener('datastar-ready', openSSE);\n\t\t\t// Fallback if datastar-ready already fired.\n\t\t\tsetTimeout(openSSE, 300);\n\t\t})();\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" aria-hidden=\"true\"></button><script type=\"module\">\n\t\t// Stable per-tab client id. Persisted in sessionStorage so a reload\n\t\t// reuses the same id (no leaked SSE registration on the server) and\n\t\t// every mutation POSTs the matching id for BroadcastExcept.\n\t\t(function () {\n\t\t\ttry {\n\t\t\t\tvar id = sessionStorage.getItem('gogogo_client_id');\n\t\t\t\tif (!id) {\n\t\t\t\t\tid = 'tab-' + Math.random().toString(36).slice(2, 10);\n\t\t\t\t\tsessionStorage.setItem('gogogo_client_id', id);\n\t\t\t\t}\n\t\t\t\twindow.__gogogoClientID = id;\n\t\t\t} catch (e) {\n\t\t\t\twindow.__gogogoClientID = 'tab-' + Math.random().toString(36).slice(2, 10);\n\t\t\t}\n\n\t\t\tfunction openSSE() {\n\t\t\t\tvar b = document.getElementById('sse-opener');\n\t\t\t\tif (b && !b.dataset.opened) { b.dataset.opened = '1'; b.click(); }\n\t\t\t}\n\t\t\tdocument.addEventListener('datastar-ready', openSSE);\n\t\t\t// Fallback if datastar-ready already fired.\n\t\t\tsetTimeout(openSSE, 300);\n\n\t\t\t// Re-open when the tab returns to the foreground: backgrounded\n\t\t\t// tabs have their EventSource throttled/paused by the browser, so\n\t\t\t// they can miss frames. Re-clicking the opener makes Datastar\n\t\t\t// re-establish the permanent stream (the server replays missed\n\t\t\t// events via its buffer). This keeps realtime working for tabs the\n\t\t\t// user is NOT currently looking at.\n\t\t\tdocument.addEventListener('visibilitychange', function () {\n\t\t\t\tif (!document.hidden) {\n\t\t\t\t\tvar b = document.getElementById('sse-opener');\n\t\t\t\t\tif (b) { b.dataset.opened = ''; openSSE(); }\n\t\t\t\t}\n\t\t\t});\n\t\t})();\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

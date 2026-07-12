@@ -235,6 +235,7 @@ func (h *SSEHub) BroadcastExcept(data []byte, excludeClientID string) {
 func (h *SSEHub) Broadcast(data []byte) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+	slog.Info("ssehub: Broadcast", "clients", len(h.clients))
 	for id, ch := range h.clients {
 		select {
 		case ch <- data:

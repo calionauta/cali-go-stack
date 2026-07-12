@@ -8,10 +8,15 @@ package collab
 // Declared here (build-tag-free) so presence_web.go and presence.go
 // (jetstream) share a single definition.
 type PresenceMsg struct {
-	Type string  `json:"type"`
-	Doc  string  `json:"doc"`
-	User string  `json:"user"`
-	X    float64 `json:"x"`
-	Y    float64 `json:"y"`
-	TS   int64   `json:"ts"`
+	Type   string   `json:"type"`
+	Doc    string   `json:"doc"`
+	User   string   `json:"user"`
+	X      float64  `json:"x"`
+	Y      float64  `json:"y"`
+	TS     int64    `json:"ts"`
+	// Peers is the list of clientIDs already present on the doc, sent to
+	// a freshly-connected client as a "snapshot" event so it can seed its
+	// peer count without waiting for future joins (which already happened
+	// before it connected).
+	Peers []string `json:"peers,omitempty"`
 }
