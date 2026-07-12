@@ -263,13 +263,24 @@ The same Go backend (PocketBase + queue + router + handlers) also runs as a
 business logic — it boots `internal/server.Run`, serves PocketBase in a
 goroutine, and points the webview at it through a reverse proxy.
 
-Build the desktop shell:
+Build commands (Wails v3 CLI):
 
 ```bash
-make desktop            # go build -tags jetstream ./cmd/desktop  →  gogogo-desktop
-# or a full native bundle (needs the wails CLI):
-make wails-build        # wails build -app ./cmd/desktop -config ./wails.json -tags jetstream
+# Current platform
+wails3 build
+# Cross-platform
+wails3 build GOOS=windows
+wails3 build GOOS=linux
+wails3 build GOOS=darwin GOARCH=arm64
+# macOS .app bundle
+wails3 package GOOS=darwin
+# Android APK (needs Android SDK/NDK + JDK 21 — see Mobile below)
+wails3 android:package
 ```
+
+All builds compile with the `jetstream` tag by default (Leaf Node edge-sync).
+If you prefer a plain binary without the wails CLI, `make desktop` runs
+`go build -tags jetstream ./cmd/desktop`.
 
 **Edge sync.** Build the desktop with `-tags jetstream`. If
 `NATS_LEAFNODE_URL` is set, the desktop boots as a **NATS Leaf Node** that
@@ -282,16 +293,19 @@ server persists resolved Loro snapshots to PocketBase (`whiteboards`
 collection) and streams presence to browser clients via SSE
 (`GET /api/collab/presence/{docID}`).
 
-CI builds the four desktop bundles (`.dmg` ×2, `.exe`, `.AppImage`) in
-`.github/workflows/build-platforms.yml` on every push. The full e2e gate
-(incl. `TestCollab_LeafNodeE2E` and `TestPresence_SSEBridgeE2E`) runs in
-`ci.yml` under `-tags "jetstream dagnats"`.
+**CI.** `.github/workflows/build-platforms.yml` builds and uploads a real
+macOS **`.dmg`** (Apple Silicon + Intel) on every push/PR. Windows and Linux
+are intentionally not built in CI — use the commands above locally. The full
+e2e gate (incl. `TestCollab_LeafNodeE2E` and `TestPresence_SSEBridgeE2E`)
+runs in `ci.yml` under `-tags "jetstream dagnats"`.
 
-> **Mobile is experimental.** `wails build -platform android` / `ios` is a
-> documented stretch goal and is **not** wired into CI or required for
-> exit. The edge-sync transport (Leaf Node) and collab layers are shared,
-> so a mobile target would reuse them — but the native UI bindings are
-> unproven and intentionally non-blocking.
+> **Mobile (Android) is opt-in, not in CI.** Wails v3 targets Android from
+the same `main.go` (Go → `libwails.so`, WebView frontend) — no separate
+mobile project. Generate an APK locally with `wails3 android:package`
+(or `android:package:fat`). This requires the **Android SDK (API 35) +
+NDK (26.3.x) + JDK 21**; `wails3 doctor` reports what's missing. Because
+that toolchain is heavy, APK builds are left to the developer and are not
+part of the CI matrix. iOS is analogous but requires Xcode.
 
 ## Deploy to your own box
 

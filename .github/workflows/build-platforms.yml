@@ -1,15 +1,14 @@
 # build-platforms.yml — Phase D desktop artifact builds.
 #
-# Builds native desktop bundles for the Wails v3 app (cmd/desktop, jetstream
-# tag so the Leaf Node edge-sync is compiled in) on every push to master and
-# on PRs, and uploads them as release artifacts. Each platform runs on its
-# native runner because Wails needs the OS toolchain (.dmg → mac, .exe →
-# windows, .deb/.AppImage → linux).
+# Builds a REAL macOS .dmg (Apple Silicon + Intel) for the Wails v3 app
+# (cmd/desktop, jetstream tag so the Leaf Node edge-sync is compiled in) on
+# every push to master and on PRs, and uploads it as a release artifact.
 #
-# This workflow ONLY builds bundles. The full test/lint gate (including the
-# collab e2e guards in `make test-combined`) runs in ci.yml — a green CI is a
-# prerequisite for a trustworthy desktop binary, so we don't duplicate tests
-# here.
+# Windows and Linux are intentionally NOT built here — developers build them
+# locally with the wails CLI (see README "Desktop & Mobile"). Keeping the CI
+# to macOS only keeps the pipeline lean. The full test/lint gate (including
+# the collab e2e guards) runs in ci.yml — a green CI is a prerequisite for a
+# trustworthy desktop binary, so we don't duplicate tests here.
 
 name: Build Desktop Platforms
 
@@ -28,22 +27,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: darwin/amd64
+          - arch: amd64
             runner: macos-latest
             artifact: gogogo-desktop-darwin-amd64
-            ext: .dmg
-          - platform: darwin/arm64
+          - arch: arm64
             runner: macos-latest
             artifact: gogogo-desktop-darwin-arm64
-            ext: .dmg
-          - platform: windows/amd64
-            runner: windows-latest
-            artifact: gogogo-desktop-windows-amd64
-            ext: .exe
-          - platform: linux/amd64
-            runner: ubuntu-latest
-            artifact: gogogo-desktop-linux-amd64
-            ext: .AppImage
     runs-on: ${{ matrix.runner }}
     env:
       GOTOOLCHAIN: local
@@ -55,76 +44,55 @@ jobs:
         # official stable tarball from go.dev instead (per-OS/arch).
         shell: bash
         run: |
-          case "${{ matrix.runner }}" in
-            windows-latest)
-              curl -fsSL https://go.dev/dl/go1.26.5.windows-amd64.zip -o /tmp/go.zip
-              unzip -o /tmp/go.zip -d 'C:\'
-              echo 'C:\go\bin' >> "$GITHUB_PATH"
-              ;;
-            *)
-              detected_os=$(uname -s | tr '[:upper:]' '[:lower:]')
-              detected_arch=$(uname -m)
-              case "$detected_arch" in
-                x86_64|amd64) go_arch=amd64 ;;
-                aarch64|arm64) go_arch=arm64 ;;
-                *) echo "Unknown arch: $detected_arch"; exit 1 ;;
-              esac
-              case "$detected_os" in
-                darwin) go_os=darwin ;;
-                linux) go_os=linux ;;
-                *) echo "Unknown OS: $detected_os"; exit 1 ;;
-              esac
-              curl -fsSL "https://go.dev/dl/go1.26.5.${go_os}-${go_arch}.tar.gz" -o /tmp/go.tgz
-              sudo rm -rf /usr/local/go
-              sudo tar -C /usr/local -xzf /tmp/go.tgz
-              echo '/usr/local/go/bin' >> "$GITHUB_PATH"
-              ;;
+          detected_os=$(uname -s | tr '[:upper:]' '[:lower:]')
+          detected_arch=$(uname -m)
+          case "$detected_arch" in
+            x86_64|amd64) go_arch=amd64 ;;
+            aarch64|arm64) go_arch=arm64 ;;
+            *) echo "Unknown arch: $detected_arch"; exit 1 ;;
           esac
-          # Verify the installed Go. $GITHUB_PATH only affects subsequent
-          # steps, so use the full path on Unix or current PATH on Windows.
-          case "${{ matrix.runner }}" in
-            windows-latest)
-              go version
-              ;;
-            *)
-              /usr/local/go/bin/go version
-              ;;
+          case "$detected_os" in
+            darwin) go_os=darwin ;;
+            linux) go_os=linux ;;
+            *) echo "Unknown OS: $detected_os"; exit 1 ;;
           esac
+          curl -fsSL "https://go.dev/dl/go1.26.5.${go_os}-${go_arch}.tar.gz" -o /tmp/go.tgz
+          sudo rm -rf /usr/local/go
+          sudo tar -C /usr/local -xzf /tmp/go.tgz
+          echo '/usr/local/go/bin' >> "$GITHUB_PATH"
+          /usr/local/go/bin/go version
 
       - name: Generate templ
         run: go tool templ generate
         shell: bash
 
-      - name: Install Linux GUI dev libraries (wails CGO)
-        # On Linux the wails v3 desktop binary links GTK4/WebKit via CGO
-        # (pkg-config gtk4 webkitgtk-6.0). The ubuntu runner lacks these
-        # -dev packages by default.
-        if: matrix.runner == 'ubuntu-latest'
+      - name: Build macOS .app + .dmg
+        # Assemble a real, mountable macOS installer: the wails v3 binary
+        # wrapped in a .app bundle, then a .dmg via hdiutil (built into
+        # macOS). Done by hand rather than `wails3 package` so the step is
+        # deterministic and does not depend on the alpha CLI being published
+        # for this Wails version.
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y \
-            libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev \
-            libglib2.0-dev pkg-config gcc
-        shell: bash
+          set -euo pipefail
+          ARCH="${{ matrix.arch }}"
+          BIN="build/gogogo-desktop-darwin-${ARCH}"
+          APP="build/Gogogo.app"
+          DMG="build/${{ matrix.artifact }}.dmg"
 
-      - name: Build desktop bundle
-        # wails v3 alpha2.117 does not publish the `cmd/wails` CLI binary,
-        # so native packaging (wails build) is unavailable on CI for this
-        # version. We build the desktop binary directly with `go build`
-        # (same as `make desktop`) under the jetstream tag, emitting a
-        # platform-named executable. Native .dmg/.exe/.AppImage packaging
-        # can be done locally with a wails CLI that ships the cmd/wails
-        # package.
-        run: |
-          OUT="build/gogogo-desktop-${{ matrix.artifact }}${{ matrix.ext }}"
-          mkdir -p build
-          go build -tags jetstream -o "$OUT" ./cmd/desktop
+          go build -tags jetstream -o "$BIN" ./cmd/desktop
+
+          rm -rf "$APP"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp "$BIN" "$APP/Contents/MacOS/gogogo-desktop"
+          cp cmd/desktop/Info.plist "$APP/Contents/Info.plist"
+
+          hdiutil create -volname Gogogo -srcfolder "$APP" -ov "$DMG"
         shell: bash
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}${{ matrix.ext }}
+          name: ${{ matrix.artifact }}.dmg
           path: |
-            build/gogogo-desktop-${{ matrix.artifact }}${{ matrix.ext }}
+            build/${{ matrix.artifact }}.dmg
           if-no-files-found: warn
