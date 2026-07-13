@@ -34,8 +34,16 @@ import (
 )
 
 // cookieName is the app's own session cookie. Deliberately NOT
-// "pb_auth" (PocketBase's cookie) — see the package doc above.
+// cookieName is the app's OWN session cookie (see package doc: kept
+// distinct from pb_auth by design). pbAuthCookieName mirrors the same
+// PocketBase auth token under PocketBase's native cookie name so that
+// PocketBase-native surfaces — most importantly the /api/realtime SSE
+// channel used for record change subscriptions — authenticate as the
+// same user. Without pb_auth set, /api/realtime is unauthenticated and
+// PocketBase's per-subscriber record-access check silently drops every
+// record event (the "best of both" record path depends on this).
 const cookieName = "gogogo_auth"
+const pbAuthCookieName = "pb_auth"
 
 // CookieSecure is set at startup from config (true in production,
 // false in dev so HTTP testing works).
@@ -82,12 +90,22 @@ func fireOnLogin(userID string) {
 // that is fine today. If a future /api handler needs e.Auth, bind
 // LoadAuthFromCookie on that specific route instead of relying on
 // this global middleware.
+//
+// Exception: /api/realtime is NOT skipped. PocketBase realtime sets the
+// subscriber's auth (RealtimeClientAuthKey) from e.Auth at SSE connect
+// time, then uses it to evaluate the collection's list/view rule for
+// every delivered record event. If e.Auth is nil on /api/realtime, the
+// rule fails for every subscriber and NO record events are delivered —
+// which would make the PB-realtime record path (used for cross-tab todo
+// sync) silently dead. The app issues BOTH gogogo_auth and pb_auth
+// cookies (same token), so reading gogogo_auth here authenticates the
+// realtime connection correctly.
 func LoadAuthFromCookie(e *core.RequestEvent) error {
 	p := e.Request.URL.Path
 	switch {
 	case p == "/health",
 		strings.HasPrefix(p, "/_/"),
-		strings.HasPrefix(p, "/api/"),
+		strings.HasPrefix(p, "/api/") && p != "/api/realtime",
 		strings.HasPrefix(p, "/static/"):
 		return e.Next()
 	}
@@ -193,9 +211,21 @@ const sessionMaxAgeSeconds = 7 * 24 * 60 * 60
 
 func setAuthCookie(w http.ResponseWriter, token string) {
 	// #nosec G124 — HttpOnly + Secure (configurable via CookieSecure)
-	// + SameSite=Lax is the right attribute set for a session cookie.
+	// + SameSite=LaxMode is the right attribute set for a session cookie.
+	// Set BOTH the app's custom cookie (gogogo_auth, consumed by
+	// LoadAppAuth) and PocketBase's native cookie (pb_auth, consumed by
+	// /api/realtime). Same token, two names — see the const doc above.
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   CookieSecure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   sessionMaxAgeSeconds,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     pbAuthCookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
@@ -209,14 +239,16 @@ var _ = strconv.Itoa // keep import for future rate-limit / nonce math
 func clearAuthCookie(w http.ResponseWriter) {
 	// #nosec G124 — HttpOnly is set; Secure is configurable via
 	// CookieSecure (true in production, false in local dev for
-	// http://127.0.0.1); SameSiteLaxMode is set.
-	http.SetCookie(w, &http.Cookie{
-		Name:     cookieName,
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   CookieSecure,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   -1,
-	})
+	// http://127.0.0.1); SameSiteLaxMode is set. Clear BOTH cookies.
+	for _, name := range []string{cookieName, pbAuthCookieName} {
+		http.SetCookie(w, &http.Cookie{
+			Name:     name,
+			Value:    "",
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   CookieSecure,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   -1,
+		})
+	}
 }
