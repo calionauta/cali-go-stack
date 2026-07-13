@@ -14,11 +14,15 @@
 //     the current user just check e.Auth != nil.
 //
 // IMPORTANT: the app uses its OWN cookie name (`gogogo_auth`), NOT
-// PocketBase's `pb_auth`. PB uses `pb_auth` for both regular users and
-// the superuser/admin session. If we reused `pb_auth`, logging into
-// the app would clobber the admin session (and vice-versa), and the
-// admin UI would show "The authorized record is not allowed to perform
-// this action." Keep the two cookies separate.
+// PocketBase's `pb_auth`. WHY (PocketBase gotcha, issues #5050/#1780):
+// PB keeps `_superusers` (admin) and regular users as SEPARATE auth
+// namespaces with different endpoints, and a single client holds only
+// ONE auth state (one cookie). Reusing `pb_auth` for the app session
+// would clobber the admin session in the same browser (and vice-versa)
+// — the admin UI then shows "The authorized record is not allowed to
+// perform this action." The two cookies are INTENTIONAL, not tech debt
+// to "simplify" away. BEST PRACTICE: run the admin UI on a separate
+// origin/port (e.g. :8090/_/) so even pb_auth never collides.
 //
 // The demo user (demo@demo.app / demo1234456) is seeded by
 // db.SeedDefaults on first run; on a fresh clone it is the only
@@ -33,15 +37,14 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-// cookieName is the app's own session cookie. Deliberately NOT
-// cookieName is the app's OWN session cookie (see package doc: kept
-// distinct from pb_auth by design). pbAuthCookieName mirrors the same
-// PocketBase auth token under PocketBase's native cookie name so that
-// PocketBase-native surfaces — most importantly the /api/realtime SSE
-// channel used for record change subscriptions — authenticate as the
-// same user. Without pb_auth set, /api/realtime is unauthenticated and
-// PocketBase's per-subscriber record-access check silently drops every
-// record event (the "best of both" record path depends on this).
+// cookieName is the app's OWN session cookie, kept distinct from
+// pb_auth ON PURPOSE (see package doc — do NOT merge them, or the
+// admin/app session clobber returns). pbAuthCookieName mirrors the same
+// token under PocketBase's native cookie name so PB-native surfaces —
+// most importantly the /api/realtime SSE channel for record-change
+// subscriptions — authenticate as the same user. Without pb_auth set,
+// /api/realtime is unauthenticated and PB's per-subscriber record-access
+// check silently drops every record event.
 const cookieName = "gogogo_auth"
 const pbAuthCookieName = "pb_auth"
 

@@ -121,6 +121,13 @@ templ PbRealtimeRecords() {
 					body: JSON.stringify({ clientId: clientId, action: 'subscribe', subscriptions: ['todos'] })
 				}).catch(function () {});
 			}
+			// Refetch the full fragment to recover any record changes that
+			// arrived while this tab was disconnected or not yet subscribed.
+			// PocketBase realtime has NO event replay buffer, so a create that
+			// happens before the subscription is live (or while backgrounded)
+			// would otherwise never reach this tab — leaving the other tab
+			// silently out of sync until a full reload.
+			function resync() { actions.get('/api/todos/fragment'); }
 			es.addEventListener('PB_CONNECT', function (e) {
 				var msg;
 				try { msg = JSON.parse(e.data); } catch (_) { return; }
@@ -131,6 +138,14 @@ templ PbRealtimeRecords() {
 		// "todos" topic so create/update/delete actually reach the browser.
 			es.addEventListener('todos', onRecord);
 			subscribe(msg.clientId);
+			resync();
+			});
+			// Recover events missed while the tab was backgrounded. Browsers
+			// throttle/pause EventSource when hidden, and PocketBase realtime
+			// does NOT replay, so refetch the fragment when the tab becomes
+			// visible again.
+			document.addEventListener('visibilitychange', function () {
+				if (!document.hidden) { resync(); }
 			});
 			function onRecord(e) {
 				var msg;

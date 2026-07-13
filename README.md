@@ -146,6 +146,17 @@ What you get out of the box:
 
 This is **not a custom admin panel** — it's the upstream PocketBase UI, embedded in the same binary, on the same port. No extra service to deploy, no extra auth to wire. For production, point a Cloudflare Tunnel / Caddy ingress at the same `/_/` path and lock it down (IP allowlist, oauth2-proxy in front, or just PocketBase's own superuser auth).
 
+### App session cookie vs `pb_auth` (why two)
+
+The app **never** reuses PocketBase's own `pb_auth` cookie. PocketBase keeps the superuser (`_superusers`) and regular users as **separate auth namespaces with different endpoints**, and a single client holds only **one** auth state (one cookie). Sharing `pb_auth` for the app session clobbers the admin session in the same browser (and vice-versa) — a well-known PocketBase gotcha ([#5050](https://github.com/pocketbase/pocketbase/issues/5050), [#1780](https://github.com/pocketbase/pocketbase/issues/1780)).
+
+So login issues **two** cookies:
+
+- `gogogo_auth` — the app's own session cookie, read by `LoadAuthFromCookie`.
+- `pb_auth` — the same token under PocketBase's native name, so PB-native surfaces (notably the `/api/realtime` SSE channel for record-change subscriptions) authenticate as the same user. Without it, realtime record events are silently dropped by PB's per-subscriber access check.
+
+The split is **intentional, not tech debt** — keep the two cookies separate. **Best practice:** run the admin UI on a separate origin/port (e.g. `:8090/_/`) so even `pb_auth` never collides between admin and app.
+
 ## Try it live
 
 A running deployment of this exact template is live. You can touch every feature from the README without cloning:
