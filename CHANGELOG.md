@@ -2,6 +2,23 @@
 
 All notable changes to this template are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.11.0] - 2026-07-13
+
+### Added
+- **DagNats enabled by default in dev builds.** `.air.toml` dev command now builds with `-tags "jetstream dagnats"`, so the onboarding durable-workflow demo runs out of the box (`internal/dagnats`, `features/todo/handlers/onboarding.go`).
+- **PocketBase realtime for todo record mutations.** Record mutations now broadcast over PocketBase's native realtime (owner-scoped view rule) instead of the SSE hub. The SSE hub now carries only workflow signals (`router`, `features/todo/handlers`, `internal/queue/ssehub`, `db/seed`).
+- **datastar-lint config.** `.datastar-lint.yaml` whitelists the `data-tool`/`data-doc-id` custom attributes used by the whiteboard JS; lint is scoped to `./features`.
+
+### Changed
+- `SSEHub.Register` now takes `(clientID, userID string, ch)`; added `BroadcastToUser` for owner-scoped fan-out (`internal/queue/ssehub.go`).
+
+### Fixed
+- **dagnats test never started embedded NATS.** `NATSPort: 0` disables the nats-server client listener (so `ReadyForConnections` could never succeed); `-1` is the random-port idiom. `startTestServer` now uses `-1` (`internal/dagnats/dagnats_test.go`).
+- **`internal/nats` test build failure.** `realtime_test.go` called `hub.Register` with 2 args; now matches the 3-arg `(clientID, userID, ch)` signature (`internal/nats/realtime_test.go`).
+- **NATS broadcaster API cleanup.** Removed the unused `PublishTodoUpdateFrom`; unified the `TodoBroadcaster` type across the in-memory and JetStream implementations (`internal/nats`).
+- **Auth cookie naming.** Explicit `pbAuthCookieName` constant now used by `LoadAuthFromCookie`/`setAuthCookie`/`clearAuthCookie` (`features/auth/auth.go`).
+- **`.gitignore` hygiene.** Ignore agent/dot-dir artifacts (`.pi-subagents`, `.*/`); keep `.github/` (CI) and `.githooks/` (hooks). The committed 706-byte `bin/datastar-lint` wrapper was restored — the 10MB binary was an uncommitted local overwrite and was never committed.
+
 ## [0.9.2] - 2026-07-11
 
 ### Added

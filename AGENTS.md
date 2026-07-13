@@ -67,7 +67,13 @@ New opt-in feature shape: `internal/feature/<name>.go` + `<name>_noop.go` + `cfg
 
 ## Realtime transport decision
 
-Task/whiteboard broadcast uses **`SSEHub` + `InMemoryBroadcaster`** (web path) — embedded, user-scoped, `BroadcastExcept` gives correct exclude-origin. JetStream is kept for **DagNats** + optional **desktop-edge whiteboard sync** (Leaf Node) + multi-instance todos behind a LB. Do NOT stand up JetStream just to broadcast todo mutations. Whiteboard clients are **offline-first**: Loro CRDT merges late/replayed ops on reconnect (outbox in `whiteboard.js`). Regression: `TestSSEBroadcast_*`, `TestWhiteboard_*`.
+**Realtime transport decision (todo records vs signals):**
+
+- **Todo records** (create/toggle/delete) flow through **PocketBase realtime** — the realtime SSE lives at `/api/realtime`, is authenticated by the app's `LoadAuthFromCookie` middleware (reads `gogogo_auth`), and the collection's `ListRule`/`ViewRule` (`@request.auth.id != '' && owner = @request.auth.id`) make delivery **per-user scoped**. Each subscribed client re-fetches `/api/todos/fragment` and morphs `#todo-list` on a `todos` event. This is the mechanism for DB actions — do NOT add a parallel SSE-hub re-render for todo mutations (the old `broadcastTodo` was removed).
+- **The SSE hub (`/api/todos/stream`)** is reserved for **ephemeral signals only**: the live clients count, LLM suggest feedback, and DagNats workflow progress. It also carries the **originating client's** synchronous patch on its own mutation POST. It does NOT broadcast record mutations to other clients.
+- **Whiteboard** still uses **`SSEHub` + `InMemoryBroadcaster`** (web path) — embedded, user-scoped, `BroadcastExcept` gives correct exclude-origin. Clients are **offline-first**: Loro CRDT merges late/replayed ops on reconnect (outbox in `whiteboard.js`). Regression: `TestSSEBroadcast_*`, `TestWhiteboard_*`, `TestLoginIssuesPbAuthCookie`.
+
+JetStream is kept for **DagNats** + optional **desktop-edge whiteboard sync** (Leaf Node) + multi-instance todos behind a LB. Do NOT stand up JetStream just to broadcast todo mutations.
 
 ## Local CI (gh-signoff)
 

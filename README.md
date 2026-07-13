@@ -18,7 +18,7 @@ We built this template to resolve those choices up front, without locking you in
 - [Who this template is for](#who-this-template-is-for)
 - [What's in the package](#whats-in-the-package)
 - [Stack in layers, not silos](#stack-in-layers-not-silos)
-- [The example: Todo App with SSE](#the-example-todo-app-with-sse)
+- [The example: Todo App with realtime](#the-example-todo-app-with-realtime)
 - [PocketBase admin UI (built in)](#pocketbase-admin-ui-built-in)
 - [Try it live](#try-it-live)
 - [Configuring the LLM (GoAI)](#configuring-the-llm-goai)
@@ -88,11 +88,11 @@ Every opt-in capability is gated by a **build tag + a runtime env flag**, with a
 
 | Capability | Build tag | Env opt-out | What you get | Default? |
 |-----------|-----------|-------------|--------------|----------|
-| **Todo app + SSE Hub** | — | — | Single-instance real-time via in-process `SSEHub`; cross-client mutations broadcast with exclude-origin | ✅ always on |
+| **Todo app + PocketBase realtime** | — | — | DB actions (create/toggle/delete) stream through PocketBase realtime, per-user scoped via the `owner` rule; the SSE Hub is reserved for ephemeral signals (toasts, clients count, AI suggest) | ✅ always on |
 | **Queue + retry** | — | — | `goqite` background jobs + `retry-go` (the "Queue + Retry" demo) | ✅ always on |
 | **AI Suggest** | — | `GOAI_API_KEY` unset | GoAI/Groq call from the todo UI; button hidden when no key | ✅ on, auto-hidden |
 | **Collaborative whiteboard** | — | — | Loro CRDT + Rough.js canvas, SSE broadcast, offline-first outbox replay, PocketBase-persisted snapshots | ✅ always on (web path) |
-| **Multi-user real-time** | `jetstream` | `NATS_ENABLED=false` | Durable `JetStream` stream for cross-instance todo broadcast (browser still uses SSE; JetStream is the server-side fan-out) | ❌ opt-in |
+| **Multi-instance real-time** | `jetstream` | `NATS_ENABLED=false` | Optional durable `JetStream` fan-out so PocketBase realtime todos sync across >1 instance behind a LB (single-instance uses the in-process PB realtime) | ❌ opt-in |
 | **Durable workflows** | `dagnats` | `DAGNATS_ENABLED=false` | DagNats JSON workflows over JetStream on `:8090` (e.g. `WelcomeOnboarding`) | ❌ opt-in |
 | **Desktop-edge whiteboard sync** | `jetstream` | `NATS_ENABLED=false` | Leaf-Node JetStream replication of Loro updates for desktop/edge clients | ❌ opt-in |
 
@@ -101,19 +101,19 @@ Every opt-in capability is gated by a **build tag + a runtime env flag**, with a
 | Profile | Tags | Use when |
 |---------|------|-----------|
 | **Lean** | _(none)_ | Single-instance web app: todos, queue+retry, AI suggest, whiteboard. `make build` |
-| **Realtime** | `-tags jetstream` | You run >1 instance behind a load balancer and need todos to sync across them. Whiteboard stays SSE (web) |
+| **Realtime** | `-tags jetstream` | You run >1 instance behind a load balancer and need todos to sync across them (PocketBase realtime + JetStream fan-out). Whiteboard stays SSE (web) |
 | **Workflows** | `-tags dagnats` | You need durable multi-step processes that survive restarts |
 | **Full** | `-tags "jetstream dagnats"` | Production: both realtime + workflows, sharing one embedded NATS on `:4222` (recommended combo) |
 
 > **Build-tag rule for new features.** To add your own optional capability, follow the existing shape: `internal/feature/<name>.go` (real impl) + `internal/feature/<name>_noop.go` (default-build stub) + a `cfg.<Name>.Enabled` flag. See `docs/decisions.md`.
 
-## The example: Todo App with SSE
+## The example: Todo App with realtime
 
 We ship a working Todo App:
 
 - Full CRUD via PocketBase
 - Reactive UI with Datastar + DaisyUI
-- Real-time SSE streaming. Mutations (`create`/`toggle`/`delete`) publish to `nats.TodoBroadcaster`; default build fans out via the in-process SSE Hub (single-instance), `-tags jetstream` fans out via a durable JetStream stream (multi-instance). Late joiners get a replay buffer; slow clients are dropped, never block the producer.
+- **Database actions stream through PocketBase realtime.** Todo `create`/`toggle`/`delete` fire PocketBase record events; each subscribed client re-fetches the fragment and morphs `#todo-list`. Delivery is per-user scoped by the collection's `owner` rule (`@request.auth.id != '' && owner = @request.auth.id`), so a client only receives events for its own records. The SSE Hub is reserved for ephemeral signals (success/retry toasts, live clients count, AI suggest) and the originating client's own synchronous patch.
 - Stacked toast notifications (auto-dismiss, manual close, progress bar)
 - Async jobs: `handleCreate` enqueues a `todo_created` job; a worker picks it up and streams a success toast to the right browser tab via the SSE Hub (`clientID` routing)
 - Retries with exponential backoff and jitter (`internal/queue/retry.go`, retry-go v4) — SSE-aware: a retry emits a `lastRetry` signal so the UI can show "retrying…"
@@ -156,7 +156,7 @@ A running deployment of this exact template is live. You can touch every feature
 | **Live PocketBase admin dashboard** | `https://<your-demo-domain>/_/` | Open the embedded PocketBase UI to browse the `todos` + `users` collections, run the REST/JS SDK playground, and inspect logs. The demo's `users` collection is **locked** — visitors can log in as the demo user but cannot create or delete accounts through the API or this dashboard (only the superuser can). |
 | **Durable workflow engine (DagNats)** | `https://<your-demo-domain>:8090` | The DagNats HTTP API where the `WelcomeOnboarding` workflow runs (declarative JSON over NATS JetStream). Inspect runs/steps or trigger them via the API; the Todo demo drives it automatically on first login. |
 
-> The demo runs `-tags dagnats` (durable workflows on `:8090`) combined with `-tags jetstream` (multi-user realtime). The two share a **single embedded NATS** on `:4222` — DagNats boots it and the realtime broadcaster attaches to it, so there is only one NATS process in the binary. To stand up your own, see [Deploy](#deploy).
+> The demo runs `-tags dagnats` (durable workflows on `:8090`) combined with `-tags jetstream` (optional multi-instance realtime fan-out). The two share a **single embedded NATS** on `:4222` — DagNats boots it and the JetStream realtime layer attaches to it, so there is only one NATS process in the binary. To stand up your own, see [Deploy](#deploy).
 
 ## Configuring the LLM (GoAI)
 
@@ -193,7 +193,7 @@ Open `http://localhost:8080` and see the Todo App running.
 ```bash
 make build            # Build binary (default: goqite + SSE Hub)
 make build-jetstream  # Build with NATS JetStream (multi-user real-time). JetStream is enabled automatically under this tag — no extra env needed; set NATS_ENABLED=false to opt out.
-make build-dagnats    # Build with DagNats durable workflows (JSON over NATS). DagNats is enabled automatically under this tag — no extra env needed; set DAGNATS_ENABLED=false to opt out. The engine listens on DAGNATS_HTTP_ADDR (default 127.0.0.1:8090). When built WITH -tags jetstream, the realtime broadcaster reuses the NATS that DagNats already owns on :4222 (single NATS).
+make build-dagnats    # Build with DagNats durable workflows (JSON over NATS). DagNats is enabled automatically under this tag — no extra env needed; set DAGNATS_ENABLED=false to opt out. The engine listens on DAGNATS_HTTP_ADDR (default 127.0.0.1:8090). When built WITH -tags jetstream, the optional JetStream realtime fan-out reuses the NATS that DagNats already owns on :4222 (single NATS).
 make build-all        # Build with both JetStream + DagNats
 make test             # Run tests with race detector (default tags)
 make test-jetstream   # Run tests with JetStream tag
