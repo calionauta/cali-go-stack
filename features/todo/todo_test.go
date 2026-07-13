@@ -79,7 +79,7 @@ func TestRetryRespectsContextCancellation(t *testing.T) {
 func TestRetrySupportsSSEFeedback(t *testing.T) {
 	hub := queue.NewSSEHub()
 	ch := make(chan []byte, 10)
-	hub.Register("test", ch)
+	hub.Register("test", "", ch)
 
 	cfg := queue.RetryConfig{
 		Attempts:     2,

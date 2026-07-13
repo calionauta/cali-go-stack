@@ -116,6 +116,28 @@ func openSSEWithCtx(ctx context.Context, t *testing.T, base, clientID string) *h
 	return resp
 }
 
+// openSSEWithClient is the authenticated variant of openSSEWithCtx: it
+// issues the SSE GET through a caller-supplied *http.Client that already
+// holds the gogogo_auth cookie (see loginUser). Use it when the test must
+// exercise the real authenticated SSE path (handleSSEStreamWithAuth →
+// LoadAppAuth) rather than the unscoped DefaultClient stream.
+func openSSEWithClient(ctx context.Context, t *testing.T, client *http.Client, base, clientID string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequestWithContext(ctx, "GET", base+"/api/todos/stream?clientID="+clientID, nil)
+	if err != nil {
+		t.Fatalf("build SSE request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("open SSE: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		_ = resp.Body.Close()
+		t.Fatalf("SSE status=%d", resp.StatusCode)
+	}
+	return resp
+}
+
 // pumpSSEUntil reads the SSE stream until the predicate returns true
 // or the timeout expires. The accumulated bytes are returned so
 // callers can run multiple substring assertions on the full transcript.
@@ -146,4 +168,32 @@ func tailString(s string, n int) string {
 		return s
 	}
 	return s[len(s)-n:]
+}
+
+// loginUser POSTs the credentials to /login so the supplied *http.Client
+// holds both the gogogo_auth and pb_auth cookies (see features/auth/auth.go).
+// Tests that need an authenticated SSE stream or authed mutations call this
+// first.
+func loginUser(ctx context.Context, t *testing.T, client *http.Client, base, email, password string) {
+	t.Helper()
+	resp, err := doPostForm(ctx, client, base+"/login", url.Values{"email": {email}, "password": {password}})
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("login status = %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+// doPostForm issues an authenticated form POST (used for /api/todos and other
+// authed routes) and returns the raw response so callers can inspect the
+// status code.
+func doPostForm(ctx context.Context, client *http.Client, urlStr string, values url.Values) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, urlStr, strings.NewReader(values.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return client.Do(req)
 }

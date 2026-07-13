@@ -175,7 +175,7 @@ func (h *Handler) handleStream(c *core.RequestEvent) error {
 	// the board after others never learned those peers existed, leaving
 	// the "X online" count wrong.)
 	ch := make(chan []byte, sseChanBuf)
-	h.hub.Register(clientID, ch)
+	h.hub.Register(clientID, "", ch)
 	defer func() {
 		h.hub.Unregister(clientID)
 		h.peerLeave(docID, clientID)

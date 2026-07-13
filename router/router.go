@@ -7,6 +7,7 @@ import (
 
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/hook"
 
 	"github.com/calionauta/gogogo-fullstack-template/config"
 	"github.com/calionauta/gogogo-fullstack-template/features/auth"
@@ -27,13 +28,16 @@ func Init(
 	js nats.JetStreamLike,
 	todoH *handlers.TodoHandler,
 ) {
-	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
-		// Global auth middleware: populate e.Auth from the pb_auth cookie
-		// on every request so custom route handlers can check e.Auth != nil.
-		// (Defined in features/auth but only wired here — the test harness
-		// wires its own copy.) Must run before route handlers read e.Auth.
-		se.Router.BindFunc(auth.LoadAuthFromCookie)
+	app.OnServe().Bind(&hook.Handler[*core.ServeEvent]{
+		Priority: -100,
+		Func: func(se *core.ServeEvent) error {
+			se.Router.BindFunc(auth.LoadAuthFromCookie)
+			return se.Next()
+		},
+	})
 
+	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
+		// Global auth middleware is bound by the priority -100 hook above.
 		se.Router.GET("/health", func(c *core.RequestEvent) error {
 			return c.String(200, "ok")
 		})
@@ -95,9 +99,6 @@ func Init(
 			jsBroadcaster.Subscribe(q.Hub())
 		}
 		if todoH != nil {
-			// Use the same handler instance the caller registered for
-			// background jobs so route state (PocketBase app ref, queue
-			// ref, config) is consistent across HTTP and worker paths.
 			todoH.SetBroadcaster(broadcaster)
 			todoH.RegisterRoutes(se)
 		} else {

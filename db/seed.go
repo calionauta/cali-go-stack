@@ -79,6 +79,26 @@ func ensureTodosCollection(app core.App) error {
 		slog.Info("seed: ensured todos.owner relation -> users")
 	}
 
+	// Realtime + REST access: a user may only view THEIR OWN todos.
+	// PocketBase realtime delivers a record event to a subscriber only if
+	// that subscriber's auth passes the collection's list/view rule; a nil
+	// rule means superuser-only, so the demo user would never receive
+	// create/update/delete events (this is what broke the PB-realtime
+	// record path — the hub broadcast masked it in tests). Owner-scoping
+	// also prevents cross-user todo leaks. The app's own server-side list
+	// rendering bypasses these API rules (it queries via the Dao with an
+	// owner filter), so this only governs the PB realtime channel + raw
+	// REST API.
+	const todoViewRule = "@request.auth.id != '' && owner = @request.auth.id"
+	if col.ListRule == nil || *col.ListRule != todoViewRule {
+		r := todoViewRule
+		col.ListRule = &r
+	}
+	if col.ViewRule == nil || *col.ViewRule != todoViewRule {
+		r := todoViewRule
+		col.ViewRule = &r
+	}
+
 	if err := app.Save(col); err != nil {
 		return fmt.Errorf("seed: save todos collection: %w", err)
 	}

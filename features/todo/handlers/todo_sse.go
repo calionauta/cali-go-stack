@@ -35,8 +35,8 @@ func (h *TodoHandler) handleSSEStream(c *core.RequestEvent) error {
 
 	sse := sdk.NewSSE(c.Response, c.Request)
 	ch := make(chan []byte, sseClientBuffer)
-	h.q.Hub().Register(clientID, ch)
-	slog.Info("todo: sse registered", "clientID", clientID, "total", h.q.Hub().Stats().Clients)
+	h.q.Hub().Register(clientID, ownerOf(c), ch)
+	slog.Info("todo: sse registered", "clientID", clientID, "userID", ownerOf(c), "total", h.q.Hub().Stats().Clients)
 	defer func() {
 		h.q.Hub().Unregister(clientID)
 		h.broadcastClientCount()
@@ -220,12 +220,11 @@ func (h *TodoHandler) streamTodo(c *core.RequestEvent, sse *sdk.ServerSentEventG
 	switch evt.Event {
 	case "deleted":
 		// Remove the element from the DOM via Datastar's remove mode.
-		// (RenderAndPatch with WithModeRemove + WithSelector is used here
-		// instead of sdk.RemoveElementByID because the latter is not
-		// reliably visible to the compiler in this module graph.)
-		return dshelpers.RenderAndPatch(sse, nil,
-			sdk.WithSelector("#todo-"+evt.ID),
-			sdk.WithModeRemove())
+		// We call sse.PatchElements directly with an empty element body +
+		// WithModeRemove + WithSelector: RenderAndPatch(nil, ...) would call
+		// component.Render() on a nil component and error out before emitting
+		// the patch, so the element would never be removed.
+		return sse.PatchElements("", sdk.WithModeRemove(), sdk.WithSelector("#todo-"+evt.ID))
 	default:
 		// For "created" and "toggled" events re-render the entire list.
 		// This is safe because listTodos scopes by c.Auth, which is

@@ -97,7 +97,7 @@ func (h *TodoHandler) SetSimulatedLLMClient(c *llm.Client) { h.llmSimulated = c 
 // advances. owner scopes the todo to a user; pass "" for the unscoped
 // demo fallback. It reuses the same validation/save path as the HTTP
 // create handler so the todos appear identically in the UI and broadcast
-// to all connected clients.
+// to the subscribed client (per-user scoped via the owner rule).
 func (h *TodoHandler) CreateTodoForOnboarding(title, owner string) error {
 	return h.saveTodo(&todo.Todo{Title: title, Completed: false}, owner)
 }
@@ -114,38 +114,20 @@ func (h *TodoHandler) simulatedLLMEnabled() bool {
 	return h.llmSimulated != nil && h.llmSimulated.Configured()
 }
 
-// SetBroadcaster wires the realtime layer. Pass nil (the default) to
-// skip cross-client broadcasting; pass the JetStream or in-memory
-// broadcaster from the nats package to share todo mutations with all
-// connected clients.
+// SetBroadcaster wires the realtime layer for EPHEMERAL signals (retry
+// feedback, suggest, workflow progress). Record mutations are NO LONGER
+// broadcast here — they flow through PocketBase realtime (per-user scoped)
+// on the client, which re-fetches /api/todos/fragment. Pass nil (the
+// default) to skip cross-client broadcasting of ephemeral signals too.
 func (h *TodoHandler) SetBroadcaster(b TodoBroadcaster) {
 	h.broadcaster = b
-}
-
-// broadcastTodo publishes a todo mutation event to every connected client
-// EXCEPT the originator (identified by the ?clientID= query param on the
-// mutating request). The originator already patched its own DOM via the
-// per-request SSE response, so re-broadcasting to it would clobber the
-// local view (e.g. replace its freshly-patched list with a full-list
-// re-render that wipes rows). No-op when no broadcaster is configured.
-func (h *TodoHandler) broadcastTodo(c *core.RequestEvent, event string, item todo.Todo) {
-	if h.broadcaster == nil {
-		return
-	}
-	fromClientID := c.Request.URL.Query().Get("clientID")
-	if err := h.broadcaster.PublishTodoUpdateFrom(
-		c.Request.Context(),
-		todoUpdateJob(event, "remote", item.ID, item.Title, item.Completed),
-		fromClientID,
-	); err != nil {
-		slog.Warn("todo: broadcast failed", "error", err)
-	}
 }
 
 // RegisterRoutes wires the HTTP routes on a PocketBase serve event.
 func (h *TodoHandler) RegisterRoutes(se *core.ServeEvent) {
 	se.Router.GET("/", h.handleIndex)
 	se.Router.GET("/api/todos", h.handleList)
+	se.Router.GET("/api/todos/fragment", h.handleListFragment)
 	se.Router.POST("/api/todos", h.handleCreate)
 	se.Router.POST("/api/todos/{id}/toggle", h.handleToggle)
 	se.Router.POST("/api/todos/completed/delete", h.handleClearCompleted)
@@ -220,6 +202,7 @@ func (h *TodoHandler) handleIndex(c *core.RequestEvent) error {
 func (h *TodoHandler) RegisterRoutesOn(r *router.Router[*core.RequestEvent]) {
 	r.GET("/", h.handleIndex)
 	r.GET("/api/todos", h.handleList)
+	r.GET("/api/todos/fragment", h.handleListFragment)
 	r.POST("/api/todos", h.handleCreate)
 	r.POST("/api/todos/{id}/toggle", h.handleToggle)
 	r.POST("/api/todos/completed/delete", h.handleClearCompleted)
@@ -322,12 +305,13 @@ func (h *TodoHandler) broadcastRetryFeedback(hub *queue.SSEHub, attempt int, opE
 	hub.Broadcast(mustJSON(queue.Job{Type: "retry", Payload: payload}))
 }
 
-// todoUpdateJob builds the queue.Job envelope broadcast for a todo
-// mutation. Both the HTTP handlers (broadcastTodo) and the durable
-// workflow creator (PocketBaseTodoCreator) use it so every connected
-// client re-renders its list on any change. The source tag ("self" /
-// "remote") lets the receiving client pick a different entry animation
-// and tint for items that originated elsewhere.
+// todoUpdateJob builds the queue.Job envelope for SSE-hub todo events.
+// Record mutations (create/toggle/delete) now propagate through
+// PocketBase realtime (the OnModelAfter*Success hooks broadcast to every
+// subscriber of the "todos" topic), so this envelope is only used for
+// EPHEMERAL signals still carried by the SSE hub — the durable
+// workflow's "workflow-completed" / "workflow-error" notifications sent
+// from onboarding.go via broadcaster.PublishTodoUpdate.
 func todoUpdateJob(event, source, id, title string, done bool) []byte {
 	ev := mustJSON(map[string]any{
 		"event":  event,
@@ -339,6 +323,7 @@ func todoUpdateJob(event, source, id, title string, done bool) []byte {
 	j := mustJSON(queue.Job{Type: "todo", Payload: ev})
 	return j
 }
+
 
 // toastJob builds a "toast" queue.Job envelope for hub.Broadcast.
 func toastJob(message, kind string) []byte {

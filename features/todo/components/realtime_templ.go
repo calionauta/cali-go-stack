@@ -85,4 +85,49 @@ func RealtimeStream(streamURL string) templ.Component {
 	})
 }
 
+// PbRealtimeRecords subscribes to PocketBase realtime for the `todos`
+// collection and re-renders the list region on any record change. This is
+// the "records" half of the "best of both" realtime strategy:
+//   - RECORDS (todo create/update/delete) flow through PocketBase realtime,
+//     which is per-user scoped — PB only delivers records the subscriber can
+//     see, so there is no cross-user broadcast leak (the old hub broadcast
+//     to every connected client regardless of owner).
+//   - EPHEMERAL signals (retry feedback, suggest, workflow progress) keep
+//     flowing through the SSE hub (see RealtimeStream), which is in-process
+//     and supports BroadcastExcept (exclude-origin) for those signals.
+//
+// We use the NATIVE EventSource + fetch subscribe protocol (no PocketBase
+// JS SDK dependency): the browser sends the pb_auth cookie automatically on
+// the SSE GET, PocketBase authenticates, and we POST the subscribe body. On
+// a record mutation event we re-fetch the list fragment via Datastar's
+// programmatic @get (window.datastar.get), morphing #todo-list in place.
+func PbRealtimeRecords() templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var3 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var3 == nil {
+			templ_7745c5c3_Var3 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<script type=\"module\">\n\t\t// Datastar v1.2.2's embedded build is an ESM module (loaded via\n\t\t// type=\"module\"), so it is NOT exposed on window. The fetch actions\n\t\t// (get/post/...) are registered internally and exposed via the `actions`\n\t\t// export — there is no top-level `get` export. Import `actions` and call\n\t\t// actions.get(...).\n\t\timport { actions } from '/static/datastar.js';\n\n\t\t(function () {\n\t\t\t// PocketBase realtime REQUIRES the clientId in the EventSource URL:\n\t\t\t// without it PB never sends PB_CONNECT, so onRecord would never bind\n\t\t\t// and record mutations would only flow through the SSE hub. Reuse the\n\t\t\t// tab's stable client id so reconnects re-subscribe with the same id.\n\t\t\tvar clientID = window.__gogogoClientID || ('tab-' + Math.random().toString(36).slice(2, 10));\n\t\t\tvar es = new EventSource('/api/realtime?clientId=' + encodeURIComponent(clientID));\n\t\t\tfunction subscribe(clientId) {\n\t\t\t\tfetch('/api/realtime', {\n\t\t\t\t\tmethod: 'POST',\n\t\t\t\t\theaders: { 'Content-Type': 'application/json' },\n\t\t\t\t\tbody: JSON.stringify({ clientId: clientId, action: 'subscribe', subscriptions: ['todos'] })\n\t\t\t\t}).catch(function () {});\n\t\t\t}\n\t\t\tes.addEventListener('PB_CONNECT', function (e) {\n\t\t\t\tvar msg;\n\t\t\t\ttry { msg = JSON.parse(e.data); } catch (_) { return; }\n\t\t\t\tif (!msg.clientId) { return; }\n\t\t\t// PocketBase sends RECORD events on `event: <topic>` (the subscription\n\t\t// topic, e.g. \"todos\"), NOT on the clientId channel (which only carries\n\t\t// control messages like PB_CONNECT / PB_SUBSCRIBED). Bind onRecord to the\n\t\t// \"todos\" topic so create/update/delete actually reach the browser.\n\t\t\tes.addEventListener('todos', onRecord);\n\t\t\tsubscribe(msg.clientId);\n\t\t\t});\n\t\t\tfunction onRecord(e) {\n\t\t\t\tvar msg;\n\t\t\t\ttry { msg = JSON.parse(e.data); } catch (_) { return; }\n\t\t\t\tif (msg.action === 'delete') {\n\t\t\t\t\t// Datastar's `get` merge adds/updates but does NOT remove absent\n\t\t\t\t\t// elements, so a deleted todo would linger in other clients.\n\t\t\t\t\t// Remove the specific element directly instead.\n\t\t\t\t\tvar delId = (msg.record && msg.record.id) || msg.recordId || msg.id;\n\t\t\t\t\tvar el = delId ? document.getElementById('todo-' + delId) : null;\n\t\t\t\t\tif (el) { el.remove(); return; }\n\t\t\t\t\tactions.get('/api/todos/fragment');\n\t\t\t\t\treturn;\n\t\t\t\t}\n\t\t\t\tif (msg.action === 'deleteAll') {\n\t\t\t\t\tvar list = document.getElementById('todo-list');\n\t\t\t\t\tif (list) {\n\t\t\t\t\t\tvar items = list.querySelectorAll('.todo-item');\n\t\t\t\t\t\tfor (var i = 0; i < items.length; i++) { items[i].remove(); }\n\t\t\t\t\t}\n\t\t\t\t\treturn;\n\t\t\t\t}\n\t\t\t\tif (msg.action === 'create' || msg.action === 'update') {\n\t\t\t\t\tactions.get('/api/todos/fragment');\n\t\t\t\t}\n\t\t\t}\n\t\t\t// EventSource auto-reconnects on drop; PB_CONNECT re-fires with a\n\t\t\t// fresh clientId, so we re-subscribe and re-bind on each connect.\n\t\t})();\n\t</script>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
 var _ = templruntime.GeneratedTemplate

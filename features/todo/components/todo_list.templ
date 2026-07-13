@@ -128,7 +128,7 @@ templ TodoList(signals todo.Signals) {
 							</div>
 							</div>
 							<div class="mt-2 text-[0.6rem] text-base-content/30 leading-relaxed">
-								Every CRUD mutation is broadcast to all connected clients via SSE. Open this page in two tabs to see todos sync in real time.
+								Every CRUD mutation streams through PocketBase realtime, scoped to your own records. Open this page in two tabs to watch todos sync live.
 							</div>
 						</div>
 					</div>
@@ -172,7 +172,7 @@ templ TodoList(signals todo.Signals) {
 
 						</div>
 						<!-- ════════ Queue + Retry tab (hard-coded tasks, no LLM) ════════ -->
-						<div data-show="$sidebarTab === 'queue'">
+						<div class="p-4" data-show="$sidebarTab === 'queue'">
 							<div class="flex items-center justify-between mb-2">
 								<div class="flex items-center gap-2">
 									<div class="w-7 h-7 rounded-lg bg-secondary/10 text-secondary flex items-center justify-center shrink-0">
@@ -202,7 +202,7 @@ templ TodoList(signals todo.Signals) {
 								<li
 									class="step transition-all duration-500"
 									data-class={ "{'step-success': $demoStep >= 3, 'step-primary text-base-content': $demoStep === 2}" }
-								>Retry on simulated failure (retry-go)<span data-show="$lastRetryStatus === 'attempt'" data-text="'Retrying — attempt ' + ($lastRetryAttempt || 1) + ' (retry-go)'"></span></li>
+								>Retry on simulated failure (retry-go)<span class="block text-xs text-base-content/60 mt-0.5 normal-case" data-show="$lastRetryStatus === 'attempt'" data-text="'Retrying — attempt ' + ($lastRetryAttempt || 1) + ' (retry-go)'"></span></li>
 								<li
 									class="step transition-all duration-500"
 									data-class={ "{'step-success': $demoStep >= 3 && $techPhase !== 'error', 'step-primary text-base-content': $demoStep === 3 && $techPhase === 'error'}" }
@@ -242,7 +242,7 @@ templ TodoList(signals todo.Signals) {
 
 						<!-- ════════ AI Suggest tab (separate affordance, calls GoAI/Groq) ════════ -->
 						if signals.LLMEnabled || signals.SimulatedLLM {
-							<div data-show="$sidebarTab === 'ai'">
+							<div class="p-4" data-show="$sidebarTab === 'ai'">
 								<div class="flex items-center justify-between mb-2">
 									<div class="flex items-center gap-2">
 										<div class="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
@@ -269,7 +269,7 @@ templ TodoList(signals todo.Signals) {
 									<li
 										class="step transition-all duration-500"
 										data-class={ "{'step-primary text-base-content': $techStep === 'retry-demo' && $suggestPending, 'step-success': $techStep === 'retry-demo' && !$suggestPending && $techPhase !== 'error', 'step-error': $techStep === 'retry-demo' && $techPhase === 'error'}" }
-									>Retry on transient error (retry-go)<span data-show="$lastRetryStatus === 'attempt'" data-text="'Retrying — attempt ' + ($lastRetryAttempt || 1) + ' (retry-go)'"></span></li>
+									>Retry on transient error (retry-go)<span class="block text-xs text-base-content/60 mt-0.5 normal-case" data-show="$lastRetryStatus === 'attempt'" data-text="'Retrying — attempt ' + ($lastRetryAttempt || 1) + ' (retry-go)'"></span></li>
 									<li
 										class="step transition-all duration-500"
 										data-class={ "{'step-primary': $techStep === 'retry-demo' && $suggestPending, 'step-success': $techStep === 'retry-demo' && !$suggestPending && $techPhase !== 'error', 'step-error': $techStep === 'retry-demo' && $techPhase === 'error'}" }
@@ -278,7 +278,6 @@ templ TodoList(signals todo.Signals) {
 
 								<button
 									class="btn btn-primary btn-sm w-full transition-all duration-200 hover:scale-[1.02] active:scale-98"
-									data-attr:disabled="$newTitle.trim() === ''"
 									data-on:click="$techStep = 'retry-demo'; $suggestPending = true; @post('/api/todos/suggest?clientID=' + encodeURIComponent($clientID || '') + '&partial=' + encodeURIComponent($newTitle))"
 									title="Ask the configured LLM (Groq) for 3 todo suggestions via goqite + retry-go"
 								>
@@ -310,7 +309,7 @@ templ TodoList(signals todo.Signals) {
 							</div>
 						<!-- ════════ Durable Workflow tab ════════ -->
 						if signals.DagNatsEnabled {
-							<div data-show="$sidebarTab === 'workflow'">
+							<div class="p-4" data-show="$sidebarTab === 'workflow'">
 								<div class="flex items-center justify-between mb-2">
 									<div class="flex items-center gap-2">
 										<div class="w-7 h-7 rounded-lg bg-accent/10 text-accent flex items-center justify-center shrink-0">
@@ -519,7 +518,7 @@ func safeJSString(s string) string {
 // broadcaster patches every client. Single modal instance handles
 // every row — far simpler than per-row dialogs.
 templ deleteConfirmModal() {
-	<dialog class="modal transition-all duration-300" data-class="{ 'modal-open': !!$confirmingDeleteId }">
+	<dialog id="confirm-delete-modal" class="modal" data-on:close="$confirmingDeleteId = ''; $confirmingDeleteTitle = ''; $deleting = false">
 		<div class="modal-box">
 			<h3 class="font-bold text-lg text-error flex items-center gap-2">
 				<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -535,7 +534,7 @@ templ deleteConfirmModal() {
 				<button
 					type="button"
 					class="btn btn-ghost btn-sm"
-					data-on:click="$confirmingDeleteId = ''; $confirmingDeleteTitle = ''"
+					data-on:click="document.getElementById('confirm-delete-modal').close()"
 				>
 					Cancel
 				</button>
@@ -543,7 +542,7 @@ templ deleteConfirmModal() {
 					type="button"
 					class="btn btn-error btn-sm transition-all"
 					data-attr:disabled="$deleting"
-					data-on:click="$deleting = true; @post('/api/todos/' + $confirmingDeleteId + '/delete?clientID=' + encodeURIComponent($clientID || '')); $confirmingDeleteId = ''; $deleting = false"
+					data-on:click="$deleting = true; document.getElementById('confirm-delete-modal').close(); @post('/api/todos/' + $confirmingDeleteId + '/delete?clientID=' + encodeURIComponent($clientID || ''))"
 				>
 					<span class="inline-flex items-center gap-2">
 						<span>Delete</span>
@@ -553,7 +552,7 @@ templ deleteConfirmModal() {
 			</div>
 		</div>
 		<form method="dialog" class="modal-backdrop">
-			<button data-on:click="$confirmingDeleteId = ''; $confirmingDeleteTitle = ''">close</button>
+			<button data-on:click="document.getElementById('confirm-delete-modal').close()">close</button>
 		</form>
 	</dialog>
 }

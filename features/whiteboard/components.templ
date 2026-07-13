@@ -75,7 +75,7 @@ templ Board(email string, docID string) {
 			@auth.Navbar(email, "whiteboard")
 			<main class="flex flex-col h-[calc(100vh-4rem)]" data-doc-id={ docID }>
 				<div class="toolbar flex flex-wrap gap-2 p-2 bg-base-200 border-b border-base-content/10 overflow-x-auto"
-				     data-signals="{ clientID: '' }">
+				     data-signals='{"clientID": ""}'>
 					<button class="btn btn-sm" data-tool="rect" data-on:click="$tool='rect'">Rectangle</button>
 					<button class="btn btn-sm" data-tool="ellipse" data-on:click="$tool='ellipse'">Ellipse</button>
 					<button class="btn btn-sm" data-tool="line" data-on:click="$tool='line'">Line</button>

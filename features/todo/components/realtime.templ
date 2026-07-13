@@ -81,3 +81,84 @@ templ RealtimeStream(streamURL string) {
 		})();
 	</script>
 }
+
+// PbRealtimeRecords subscribes to PocketBase realtime for the `todos`
+// collection and re-renders the list region on any record change. This is
+// the "records" half of the "best of both" realtime strategy:
+//   - RECORDS (todo create/update/delete) flow through PocketBase realtime,
+//     which is per-user scoped — PB only delivers records the subscriber can
+//     see, so there is no cross-user broadcast leak (the old hub broadcast
+//     to every connected client regardless of owner).
+//   - EPHEMERAL signals (retry feedback, suggest, workflow progress) keep
+//     flowing through the SSE hub (see RealtimeStream), which is in-process
+//     and supports BroadcastExcept (exclude-origin) for those signals.
+//
+// We use the NATIVE EventSource + fetch subscribe protocol (no PocketBase
+// JS SDK dependency): the browser sends the pb_auth cookie automatically on
+// the SSE GET, PocketBase authenticates, and we POST the subscribe body. On
+// a record mutation event we re-fetch the list fragment via Datastar's
+// programmatic @get (window.datastar.get), morphing #todo-list in place.
+templ PbRealtimeRecords() {
+	<script type="module">
+		// Datastar v1.2.2's embedded build is an ESM module (loaded via
+		// type="module"), so it is NOT exposed on window. The fetch actions
+		// (get/post/...) are registered internally and exposed via the `actions`
+		// export — there is no top-level `get` export. Import `actions` and call
+		// actions.get(...).
+		import { actions } from '/static/datastar.js';
+
+		(function () {
+			// PocketBase realtime REQUIRES the clientId in the EventSource URL:
+			// without it PB never sends PB_CONNECT, so onRecord would never bind
+			// and record mutations would only flow through the SSE hub. Reuse the
+			// tab's stable client id so reconnects re-subscribe with the same id.
+			var clientID = window.__gogogoClientID || ('tab-' + Math.random().toString(36).slice(2, 10));
+			var es = new EventSource('/api/realtime?clientId=' + encodeURIComponent(clientID));
+			function subscribe(clientId) {
+				fetch('/api/realtime', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ clientId: clientId, action: 'subscribe', subscriptions: ['todos'] })
+				}).catch(function () {});
+			}
+			es.addEventListener('PB_CONNECT', function (e) {
+				var msg;
+				try { msg = JSON.parse(e.data); } catch (_) { return; }
+				if (!msg.clientId) { return; }
+			// PocketBase sends RECORD events on `event: <topic>` (the subscription
+		// topic, e.g. "todos"), NOT on the clientId channel (which only carries
+		// control messages like PB_CONNECT / PB_SUBSCRIBED). Bind onRecord to the
+		// "todos" topic so create/update/delete actually reach the browser.
+			es.addEventListener('todos', onRecord);
+			subscribe(msg.clientId);
+			});
+			function onRecord(e) {
+				var msg;
+				try { msg = JSON.parse(e.data); } catch (_) { return; }
+				if (msg.action === 'delete') {
+					// Datastar's `get` merge adds/updates but does NOT remove absent
+					// elements, so a deleted todo would linger in other clients.
+					// Remove the specific element directly instead.
+					var delId = (msg.record && msg.record.id) || msg.recordId || msg.id;
+					var el = delId ? document.getElementById('todo-' + delId) : null;
+					if (el) { el.remove(); return; }
+					actions.get('/api/todos/fragment');
+					return;
+				}
+				if (msg.action === 'deleteAll') {
+					var list = document.getElementById('todo-list');
+					if (list) {
+						var items = list.querySelectorAll('.todo-item');
+						for (var i = 0; i < items.length; i++) { items[i].remove(); }
+					}
+					return;
+				}
+				if (msg.action === 'create' || msg.action === 'update') {
+					actions.get('/api/todos/fragment');
+				}
+			}
+			// EventSource auto-reconnects on drop; PB_CONNECT re-fires with a
+			// fresh clientId, so we re-subscribe and re-bind on each connect.
+		})();
+	</script>
+}

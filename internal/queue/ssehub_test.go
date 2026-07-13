@@ -54,7 +54,7 @@ func TestSSEHub_ReplacedChannel_PreservesBuffer(t *testing.T) {
 
 	// Reconnect with a fresh channel. Should receive both replayed.
 	newCh := make(chan []byte, 10)
-	h.Register("c1", newCh)
+	h.Register("c1", "", newCh)
 
 	got := drainN(newCh, 2, time.Second)
 	want := []string{"a", "b"}
@@ -78,7 +78,7 @@ func TestSSEHub_SynchronousReplay_NoGoroutineLeak(t *testing.T) {
 		hub := NewSSEHub()
 		ch := make(chan []byte, 10)
 		hub.Send("x", []byte("a"))
-		hub.Register("x", ch)
+		hub.Register("x", "", ch)
 		drain(ch)
 		hub.Unregister("x")
 	}
@@ -99,8 +99,8 @@ func TestSSEHub_Stats_ReflectsState(t *testing.T) {
 	h := NewSSEHub()
 	c1 := make(chan []byte, 10) // large enough that Send doesn't block
 	c2 := make(chan []byte, 10)
-	h.Register("c1", c1)
-	h.Register("c2", c2)
+	h.Register("c1", "", c1)
+	h.Register("c2", "", c2)
 	// These two go to c1's channel (registered → direct).
 	h.Send("c1", []byte("a"))
 	h.Send("c1", []byte("b"))
@@ -132,7 +132,7 @@ func TestSSEHub_WithDropHandler_InvokedOnBackpressure(t *testing.T) {
 
 	// Successful send → no drop.
 	ch := make(chan []byte, 1)
-	h.Register("c", ch)
+	h.Register("c", "", ch)
 	h.Send("c", []byte("ok"))
 	if got := drops.Load(); got != 0 {
 		t.Errorf("expected 0 drops on success, got %d", got)
@@ -175,7 +175,7 @@ func TestSSEHub_BufferRing_DropsOldest(t *testing.T) {
 	h.Send("c", []byte("third"))  // buf = [second, third]; "first" dropped
 
 	ch := make(chan []byte, 10)
-	h.Register("c", ch)
+	h.Register("c", "", ch)
 
 	got := drainN(ch, 2, time.Second)
 	if string(got[0]) != "second" {
@@ -192,7 +192,7 @@ func TestSSEHub_BufferRing_DropsOldest(t *testing.T) {
 func TestSSEHub_Broadcast_SkipsUnregisteredClients(t *testing.T) {
 	h := NewSSEHub()
 	ch := make(chan []byte, 10)
-	h.Register("only-connected", ch)
+	h.Register("only-connected", "", ch)
 
 	// "ghost" never registered. Broadcast must not enqueue to a
 	// buffer for it (the buffer is for late-joiners, not for
@@ -212,6 +212,48 @@ func TestSSEHub_Broadcast_SkipsUnregisteredClients(t *testing.T) {
 	if stats.BufferedClients != 0 {
 		t.Errorf("expected 0 buffered clients (broadcast skips unreg), got %d",
 			stats.BufferedClients)
+	}
+}
+
+// TestSSEHub_BroadcastToUser_ScopesByOwner asserts the per-user
+// contract: a record mutation is delivered only to clients owned by the
+// same user, and the originating client (excludeClientID) is skipped.
+// This guards the userOf map initialization bug where BroadcastToUser
+// silently delivered to nobody because userOf was a nil map.
+func TestSSEHub_BroadcastToUser_ScopesByOwner(t *testing.T) {
+	h := NewSSEHub()
+	u1a := make(chan []byte, 10) // user u1, originator
+	u1b := make(chan []byte, 10) // user u1, other tab
+	u2c := make(chan []byte, 10) // user u2, different user
+	h.Register("u1a", "u1", u1a)
+	h.Register("u1b", "u1", u1b)
+	h.Register("u2c", "u2", u2c)
+
+	const msg = "mutation"
+	h.BroadcastToUser([]byte(msg), "u1", "u1a")
+
+	// u1b (same user, not excluded) must receive.
+	select {
+	case got := <-u1b:
+		if string(got) != msg {
+			t.Fatalf("u1b: expected %q, got %q", msg, string(got))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("u1b: same-user client did not receive scoped broadcast")
+	}
+
+	// u1a (excluded originator) must NOT receive.
+	select {
+	case got := <-u1a:
+		t.Fatalf("u1a: excluded originator unexpectedly received %q", string(got))
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// u2c (different user) must NOT receive — no cross-user leak.
+	select {
+	case got := <-u2c:
+		t.Fatalf("u2c: cross-user leak, received %q", string(got))
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 

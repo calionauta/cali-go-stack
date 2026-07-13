@@ -45,8 +45,8 @@ func TestJetStreamBroadcasterFanout(t *testing.T) {
 	// Two independent clients, like two browser tabs on different instances.
 	c1 := make(chan []byte, 1)
 	c2 := make(chan []byte, 1)
-	hub.Register("c1", c1)
-	hub.Register("c2", c2)
+	hub.Register("c1", "user1", c1)
+	hub.Register("c2", "user1", c2)
 
 	if err := b.PublishTodoUpdate(context.Background(), []byte(payload)); err != nil {
 		t.Fatalf("publish: %v", err)

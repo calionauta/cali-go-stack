@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/cookiejar"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -127,5 +129,95 @@ func TestIntegration_RetryFeedbackExercisesSSE(t *testing.T) {
 	// surfaces both the transient failures AND the eventual success.
 	if len(retryEvents) == 0 || retryEvents[len(retryEvents)-1]["status"] != "success" {
 		t.Fatalf("last retry event should be status=success, got %+v", retryEvents)
+	}
+}
+
+// sseSignalIntMax scans an SSE transcript for a numeric signal
+// (e.g. "demoStep":N) and returns the highest N seen. Used to prove a
+// progressive stepper reached its final step rather than stalling at an
+// earlier one (the original "retry demo never finalizes / stuck at step
+// 2" bug). Returns 0 if the signal never appears.
+func sseSignalIntMax(transcript, name string) int {
+	max := 0
+	for _, data := range parseSSEData(transcript) {
+		needle := "\"" + name + "\":"
+		idx := strings.Index(data, needle)
+		for idx >= 0 {
+			rest := data[idx+len(needle):]
+			var n int
+			if _, err := fmt.Sscanf(rest, "%d", &n); err == nil && n > max {
+				max = n
+			}
+			next := strings.Index(data[idx+1:], needle)
+			if next < 0 {
+				break
+			}
+			idx = idx + 1 + next
+		}
+	}
+	return max
+}
+
+// TestIntegration_RetryDemoCompletesToStepThree is the end-to-end
+// regression guard for the "Retry on simulated failure" demo actually
+// FINALIZING. It runs the REAL retry_demo job (the same handler the UI
+// button enqueues) through the real goqite worker + SSE pipeline and
+// asserts the progressive stepper reaches its final step (demoStep=3)
+// and that an explicit success retry event is broadcast (which is what
+// resets the spinner via applyTechStep). This directly covers the user
+// report that the demo "doesn't finalize / gets stuck at step 2": if the
+// success branch in streamRetry stops firing, demoStep never reaches 3
+// and this test fails instead of shipping the stuck spinner.
+func TestIntegration_RetryDemoCompletesToStepThree(t *testing.T) {
+	base, q, _, _, cleanup := testFixture(t)
+	defer cleanup()
+
+	clientID := "retry-demo-" + time.Now().Format(clientIDSuffixFormat)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// Authenticated SSE path (mirrors a real logged-in browser): log in
+	// to get the gogogo_auth cookie, then open the stream through that
+	// client so handleSSEStreamWithAuth → LoadAppAuth runs for real.
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookiejar: %v", err)
+	}
+	client := &http.Client{Jar: jar}
+	loginUser(ctx, t, client, base, demoEmail, demoPassword)
+
+	stream := openSSEWithClient(ctx, t, client, base, clientID)
+	defer func() { _ = stream.Body.Close() }()
+	time.Sleep(100 * time.Millisecond)
+
+	// Enqueue the REAL retry_demo job — identical path to the UI button.
+	job, err := json.Marshal(queue.Job{Type: "retry_demo", ClientID: clientID})
+	if err != nil {
+		t.Fatalf("marshal job: %v", err)
+	}
+	if err := q.Enqueue(ctx, job); err != nil {
+		t.Fatalf("enqueue retry_demo: %v", err)
+	}
+
+	// Pump until the stepper reaches its final step AND a success retry
+	// event has been broadcast.
+	full := pumpSSEUntil(t, stream, 15*time.Second, func(transcript string) bool {
+		evs, _ := collectRetryFeedback(transcript)
+		return sseSignalIntMax(transcript, "demoStep") >= 3 && hasRetrySuccess(evs)
+	})
+
+	// 1) Finalize: the stepper must reach step 3 (not stall at 1 or 2).
+	if got := sseSignalIntMax(full, "demoStep"); got < 3 {
+		t.Fatalf("retry-demo demoStep reached %d, want >= 3 (tail: %s)", got, tailString(full, 800))
+	}
+	// 2) The success branch in streamRetry must have fired (this is what
+	//    resets suggestPending=false on the spinner).
+	if events, _ := collectRetryFeedback(full); !hasRetrySuccess(events) {
+		t.Fatalf("retry-demo never emitted a success retry event (tail: %s)", tailString(full, 800))
+	}
+	// 3) It must have advanced THROUGH step 2 (proving the progressive
+	//    lighting works, not a single jump or a stall).
+	if got := sseSignalIntMax(full, "demoStep"); got < 2 {
+		t.Fatalf("retry-demo never advanced to step 2 (tail: %s)", tailString(full, 800))
 	}
 }

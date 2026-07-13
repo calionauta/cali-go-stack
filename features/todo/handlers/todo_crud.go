@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -56,6 +57,42 @@ func (h *TodoHandler) handleList(c *core.RequestEvent) error {
 		}),
 		sdk.WithSelector("#todo-list"),
 	)
+}
+
+// handleListFragment returns the todo list region as a PLAIN HTML fragment
+// (not SSE) so a client can morph #todo-list in place after a PocketBase
+// realtime record change. This is the "records" half of the realtime
+// strategy: PocketBase realtime (per-user scoped) notifies the browser that
+// a todo changed, and the browser re-fetches this fragment via Datastar's
+// programmatic @get. The SSE hub (handleList) stays for ephemeral signals
+// (retry feedback, suggest, workflow progress).
+func (h *TodoHandler) handleListFragment(c *core.RequestEvent) error {
+	if err := auth.LoadAppAuth(c); err != nil {
+		slog.Warn("todo: fragment auth load", "error", err)
+	} else if c.Auth == nil {
+		return c.Redirect(http.StatusSeeOther, "/login")
+	}
+	filter := c.Request.URL.Query().Get("filter")
+	if filter == "" {
+		filter = "all"
+	}
+	todos, err := h.listTodos(c, filter)
+	if err != nil {
+		slog.Error("todo: fragment list failed", "filter", filter, "error", err)
+		return c.String(statusInternal, "error listing todos")
+	}
+	var buf bytes.Buffer
+	if err := components.TodoListRegion(todo.Signals{
+		Todos:      todos,
+		Filter:     filter,
+		ItemCount:  len(todos),
+		LLMEnabled: h.llmEnabled(),
+	}).Render(c.Request.Context(), &buf); err != nil {
+		slog.Error("todo: fragment render failed", "error", err)
+		return c.String(statusInternal, "error rendering list")
+	}
+	c.Response.Header().Set("Content-Type", "text/html; charset=utf-8")
+	return c.HTML(http.StatusOK, buf.String())
 }
 
 // patchTodoListWithSelfOrigin is the per-handler exit for local todo
@@ -118,8 +155,6 @@ func (h *TodoHandler) handleCreate(c *core.RequestEvent) error {
 		h.onboarding.ResumeOnboarding(ownerOf(c))
 	}
 
-	h.broadcastTodo(c, "created", item)
-
 	todos, err := h.listTodos(c, "all")
 	if err != nil {
 		slog.Error("todo: list after create failed", "error", err)
@@ -143,6 +178,12 @@ func (h *TodoHandler) handleCreate(c *core.RequestEvent) error {
 	if err := h.patchTodoListWithSelfOrigin(sse, todos); err != nil {
 		return err
 	}
+	// DB actions now propagate to every client (including the
+	// originator's other tabs) via PocketBase realtime — the record
+	// mutation fires OnModelAfter*Success, which PocketBase broadcasts
+	// to all subscribers of the "todos" topic. The SSE hub is reserved
+	// for ephemeral signals (retry feedback, suggest, workflow
+	// progress), not record mutations.
 	return emitToast(sse, "Added", "success")
 }
 
@@ -172,19 +213,13 @@ func (h *TodoHandler) handleToggle(c *core.RequestEvent) error {
 		return c.String(statusInternal, "toggle failed")
 	}
 
-	toggled := todo.Todo{
-		ID:        rec.Id,
-		Title:     rec.GetString("title"),
-		Completed: rec.GetBool("completed"),
-	}
-	h.broadcastTodo(c, "toggled", toggled)
-
 	todos, err := h.listTodos(c, "all")
 	if err != nil {
 		slog.Error("todo: list after toggle failed", "error", err)
 		return c.String(statusInternal, "error listing todos")
 	}
 	sse := sdk.NewSSE(c.Response, c.Request)
+	// Record propagation is via PocketBase realtime (see handleCreate).
 	return h.patchTodoListWithSelfOrigin(sse, todos)
 }
 
@@ -240,8 +275,6 @@ func (h *TodoHandler) handleDelete(c *core.RequestEvent) error {
 		return c.String(statusInternal, "delete failed")
 	}
 
-	h.broadcastTodo(c, "deleted", todo.Todo{ID: rec.Id, Title: title})
-
 	todos, err := h.listTodos(c, "all")
 	if err != nil {
 		slog.Error("todo: list after delete failed", "error", err)
@@ -259,6 +292,7 @@ func (h *TodoHandler) handleDelete(c *core.RequestEvent) error {
 	if err := h.patchTodoListWithSelfOrigin(sse, todos); err != nil {
 		return err
 	}
+	// Record propagation is via PocketBase realtime (see handleCreate).
 	return emitToast(sse, fmt.Sprintf("Deleted “%s”", title), "info")
 }
 
@@ -292,6 +326,8 @@ func (h *TodoHandler) handleClearCompleted(c *core.RequestEvent) error {
 	if err := h.patchTodoListWithSelfOrigin(sse, todos); err != nil {
 		return err
 	}
+	// Record propagation is via PocketBase realtime (see handleCreate); no
+	// SSE hub broadcast needed here.
 	if count == 0 {
 		return emitToast(sse, "Nothing to clear", "info")
 	}

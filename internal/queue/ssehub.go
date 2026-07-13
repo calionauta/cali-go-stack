@@ -50,6 +50,10 @@ type SSEHub struct {
 	mu      sync.RWMutex
 	clients map[string]chan []byte
 	buffer  map[string][][]byte
+	// userOf maps a connected clientID to the owner userID it belongs
+	// to. Used by BroadcastToUser to scope record mutations to the
+	// owning user's clients only, preventing cross-user todo leaks.
+	userOf map[string]string
 
 	// maxBuffer is the per-client replay buffer ring length.
 	maxBuffer int
@@ -90,6 +94,7 @@ func NewSSEHub(opts ...HubOption) *SSEHub {
 	h := &SSEHub{
 		clients:   make(map[string]chan []byte),
 		buffer:    make(map[string][][]byte),
+		userOf:    make(map[string]string),
 		maxBuffer: DefaultReplayBufferSize,
 		onDrop: func(clientID string, _ []byte, reason string) {
 			slog.Warn("ssehub: dropping event", "client_id", clientID, "reason", reason)
@@ -109,10 +114,11 @@ func NewSSEHub(opts ...HubOption) *SSEHub {
 // Safe to call multiple times with the same clientID; the channel
 // is replaced and the buffer is preserved (so a re-connecting tab
 // doesn't lose intermediate events).
-func (h *SSEHub) Register(clientID string, ch chan []byte) {
+func (h *SSEHub) Register(clientID, userID string, ch chan []byte) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.clients[clientID] = ch
+	h.userOf[clientID] = userID
 
 	// Drain the replay buffer SYNCHRONOUSLY. We hold the write lock
 	// so a concurrent Send either sees us as already-registered and
@@ -139,6 +145,7 @@ func (h *SSEHub) Unregister(clientID string) {
 	defer h.mu.Unlock()
 	delete(h.clients, clientID)
 	delete(h.buffer, clientID)
+	delete(h.userOf, clientID)
 }
 
 // Send pushes data to a specific client. Non-blocking: if the
@@ -241,6 +248,32 @@ func (h *SSEHub) Broadcast(data []byte) {
 		case ch <- data:
 		default:
 			h.onDrop(id, data, "slow-client-broadcast")
+		}
+	}
+}
+
+// BroadcastToUser sends data to all currently connected clients that
+// belong to userID, EXCEPT excludeClientID. This is the per-user scoped
+// variant of Broadcast used for record mutations: a todo
+// create/toggle/delete is delivered only to the owning user's open tabs,
+// never to another user's (cross-user leak), and never back to the
+// originating tab (which already patched its own DOM via the per-request
+// SSE response, so a redundant full-list re-render would clobber its
+// local view). Drop policy is identical to Broadcast.
+func (h *SSEHub) BroadcastToUser(data []byte, userID, excludeClientID string) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for id, ch := range h.clients {
+		if id == excludeClientID {
+			continue
+		}
+		if h.userOf[id] != userID {
+			continue
+		}
+		select {
+		case ch <- data:
+		default:
+			h.onDrop(id, data, "slow-client-broadcast-user")
 		}
 	}
 }
