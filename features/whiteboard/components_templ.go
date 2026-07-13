@@ -32,8 +32,11 @@ type BoardMeta struct {
 	DocVer int
 }
 
-// BoardList renders the index of existing whiteboards.
-func BoardList(email string, boards []BoardMeta) templ.Component {
+// BoardListWithRealtime renders the index of existing whiteboards with
+// PocketBase realtime wiring so the list updates live when another user
+// creates a new board. Follows the same pattern as the todo feature's
+// PbRealtimeRecords: a hidden @get button + EventSource subscription.
+func BoardListWithRealtime(email string, boards []BoardMeta) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -62,7 +65,7 @@ func BoardList(email string, boards []BoardMeta) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<script defer type=\"module\" src=\"/static/theme.js\"></script><script src=\"https://cdn.jsdelivr.net/npm/iconify-icon@2.1.0/dist/iconify-icon.min.js\"></script></head><body>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<script defer type=\"module\" src=\"/static/theme.js\"></script><script src=\"https://cdn.jsdelivr.net/npm/iconify-icon@2.1.0/dist/iconify-icon.min.js\"></script><script defer type=\"module\" src=\"/static/datastar.js\"></script></head><body>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -70,62 +73,115 @@ func BoardList(email string, boards []BoardMeta) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<main class=\"container mx-auto p-4\"><div class=\"flex items-center justify-between mb-4\"><h1 class=\"text-2xl font-bold\">Whiteboards</h1><a class=\"btn btn-primary\" href=\"/whiteboard/new\">New whiteboard</a></div><div class=\"grid gap-2\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<main class=\"container mx-auto p-4\"><div class=\"flex items-center justify-between mb-4\"><h1 class=\"text-2xl font-bold\">Whiteboards</h1><a class=\"btn btn-primary\" href=\"/whiteboard/new\">New whiteboard</a></div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = WhiteboardListFragment(boards).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</main><button id=\"wb-realtime-resync\" type=\"button\" class=\"hidden\" data-on:click=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var2 string
+		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.ResolveAttributeValue("@get('/api/whiteboards/fragment')")
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/whiteboard/components.templ`, Line: 51, Col: 55}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var2)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\" aria-hidden=\"true\"></button><script type=\"module\">\n\t\t\t\tvar clientID = 'wb-' + Math.random().toString(36).slice(2, 10);\n\t\t\t\tvar es = new EventSource('/api/realtime?clientId=' + encodeURIComponent(clientID));\n\t\t\t\tfunction subscribe(clientId) {\n\t\t\t\t\tfetch('/api/realtime', {\n\t\t\t\t\t\tmethod: 'POST',\n\t\t\t\t\t\theaders: { 'Content-Type': 'application/json' },\n\t\t\t\t\t\tbody: JSON.stringify({ clientId: clientId, action: 'subscribe', subscriptions: ['whiteboards'] })\n\t\t\t\t\t}).catch(function () {});\n\t\t\t\t}\n\t\t\t\tfunction resync() {\n\t\t\t\t\tvar b = document.getElementById('wb-realtime-resync');\n\t\t\t\t\tif (b) { b.click(); }\n\t\t\t\t}\n\t\t\t\tes.addEventListener('PB_CONNECT', function (e) {\n\t\t\t\t\tvar msg;\n\t\t\t\t\ttry { msg = JSON.parse(e.data); } catch (_) { return; }\n\t\t\t\t\tif (!msg.clientId) { return; }\n\t\t\t\t\tes.addEventListener('whiteboards', onRecord);\n\t\t\t\t\tsubscribe(msg.clientId);\n\t\t\t\t\tresync();\n\t\t\t\t});\n\t\t\t\tdocument.addEventListener('visibilitychange', function () {\n\t\t\t\t\tif (!document.hidden) { resync(); }\n\t\t\t\t});\t\t\t\tfunction onRecord(e) {\n\t\t\t\t\tresync();\n\t\t\t\t}\n\t\t\t\t</script></body></html>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// WhiteboardListFragment renders just the whiteboard list grid. It is the
+// target of the @get('/api/whiteboards/fragment') resync and carries the
+// id="whiteboard-list" selector that the server sets datastar-selector for.
+func WhiteboardListFragment(boards []BoardMeta) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var3 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var3 == nil {
+			templ_7745c5c3_Var3 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<div id=\"whiteboard-list\" class=\"grid gap-2\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if len(boards) == 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<p class=\"text-base-content/60\">No whiteboards yet. Create one to start drawing together.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<p class=\"text-base-content/60\">No whiteboards yet. Create one to start drawing together.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
 		for _, b := range boards {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<a class=\"card card-bordered bg-base-200 p-4 hover:bg-base-300\" href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<a class=\"card card-bordered bg-base-200 p-4 hover:bg-base-300\" href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var2 templ.SafeURL
-			templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinURLErrs("/whiteboard/" + b.DocID)
+			var templ_7745c5c3_Var4 templ.SafeURL
+			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinURLErrs("/whiteboard/" + b.DocID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/whiteboard/components.templ`, Line: 46, Col: 101}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\"><div class=\"font-mono text-sm\">")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var3 string
-			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(b.DocID)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/whiteboard/components.templ`, Line: 47, Col: 47}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div><div class=\"text-xs text-base-content/60\">version ")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var4 string
-			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(b.DocVer)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/whiteboard/components.templ`, Line: 48, Col: 67}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/whiteboard/components.templ`, Line: 95, Col: 98}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div></a>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\"><div class=\"font-mono text-sm\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var5 string
+			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(b.DocID)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/whiteboard/components.templ`, Line: 96, Col: 44}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</div><div class=\"text-xs text-base-content/60\">version ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var6 string
+			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(b.DocVer)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/whiteboard/components.templ`, Line: 97, Col: 64}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</div></a>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div></main></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -152,25 +208,25 @@ func Board(email string, docID string) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var5 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var5 == nil {
-			templ_7745c5c3_Var5 = templ.NopComponent
+		templ_7745c5c3_Var7 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var7 == nil {
+			templ_7745c5c3_Var7 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Whiteboard ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Whiteboard ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var6 string
-		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(docID)
+		var templ_7745c5c3_Var8 string
+		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(docID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/whiteboard/components.templ`, Line: 66, Col: 28}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/whiteboard/components.templ`, Line: 112, Col: 28}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, " — gogogo-fullstack-template</title><link rel=\"stylesheet\" href=\"/static/app.min.css\"><link rel=\"stylesheet\" href=\"/static/app.css\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, " — gogogo-fullstack-template</title><link rel=\"stylesheet\" href=\"/static/app.min.css\"><link rel=\"stylesheet\" href=\"/static/app.css\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -178,7 +234,7 @@ func Board(email string, docID string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<script defer type=\"module\" src=\"/static/theme.js\"></script><script src=\"https://cdn.jsdelivr.net/npm/iconify-icon@2.1.0/dist/iconify-icon.min.js\"></script><script src=\"https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.min.js\"></script></head><body>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<script defer type=\"module\" src=\"/static/theme.js\"></script><script src=\"https://cdn.jsdelivr.net/npm/iconify-icon@2.1.0/dist/iconify-icon.min.js\"></script><script src=\"https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.min.js\"></script></head><body>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -186,20 +242,20 @@ func Board(email string, docID string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<main class=\"flex flex-col h-[calc(100vh-4rem)]\" data-doc-id=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<main class=\"flex flex-col h-[calc(100vh-4rem)]\" data-doc-id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var7 string
-		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(docID)
+		var templ_7745c5c3_Var9 string
+		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(docID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/whiteboard/components.templ`, Line: 76, Col: 71}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/whiteboard/components.templ`, Line: 122, Col: 71}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "\"><div class=\"toolbar flex flex-wrap gap-2 p-2 bg-base-200 border-b border-base-content/10 overflow-x-auto\" data-signals='{\"clientID\": \"\"}'><button class=\"btn btn-sm\" data-tool=\"rect\" data-on:click=\"$tool='rect'\">Rectangle</button> <button class=\"btn btn-sm\" data-tool=\"ellipse\" data-on:click=\"$tool='ellipse'\">Ellipse</button> <button class=\"btn btn-sm\" data-tool=\"line\" data-on:click=\"$tool='line'\">Line</button> <button class=\"btn btn-sm\" data-tool=\"pen\" data-on:click=\"$tool='pen'\">Pen</button> <input class=\"input input-sm w-16 cursor-pointer\" type=\"color\" value=\"#1f2937\" id=\"color-input\" name=\"color\" aria-label=\"Shape color\" data-bind=\"color\" data-on:input=\"$color = $evt.target.value\"><div class=\"online-pill\" title=\"People connected to this board\"><span class=\"pulse-dot\"></span> <span id=\"peer-count\">1</span> <span>online</span></div><span id=\"net-status\" class=\"text-xs text-warning hidden\" title=\"Connection status\"></span> <a class=\"btn btn-sm btn-ghost\" href=\"/whiteboard\">Back</a></div><div class=\"relative flex-1 overflow-hidden bg-base-100\" id=\"canvas-wrap\"><canvas id=\"wb-canvas\" class=\"absolute inset-0 w-full h-full block cursor-crosshair\"></canvas><div id=\"cursors\" class=\"absolute inset-0 pointer-events-none\"></div></div></main><script defer src=\"/static/whiteboard.js\"></script><script>\n\t\t\t\t// The doc id is carried on <main data-doc-id> (templ escapes\n\t\t\t\t// attribute values safely). Reading it from the DOM avoids the\n\t\t\t\t// earlier JS-string-escaping pitfalls (templ.URL() emitted a full\n\t\t\t\t// URL and templ.JSEscape() produced unquoted output — both threw\n\t\t\t\t// \"WB_DOC_ID missing\" / \"Unexpected token '.'\").\n\t\t\t\twindow.WB_DOC_ID = document.querySelector(\"main\")?.dataset.docId || \"\";\n\t\t\t</script></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "\"><div class=\"toolbar flex flex-wrap gap-2 p-2 bg-base-200 border-b border-base-content/10 overflow-x-auto\" data-signals='{\"clientID\": \"\"}'><button class=\"btn btn-sm\" data-tool=\"rect\" data-on:click=\"$tool='rect'\">Rectangle</button> <button class=\"btn btn-sm\" data-tool=\"ellipse\" data-on:click=\"$tool='ellipse'\">Ellipse</button> <button class=\"btn btn-sm\" data-tool=\"line\" data-on:click=\"$tool='line'\">Line</button> <button class=\"btn btn-sm\" data-tool=\"pen\" data-on:click=\"$tool='pen'\">Pen</button> <input class=\"input input-sm w-16 cursor-pointer\" type=\"color\" value=\"#1f2937\" id=\"color-input\" name=\"color\" aria-label=\"Shape color\" data-bind=\"color\" data-on:input=\"$color = $evt.target.value\"><div class=\"online-pill\" title=\"People connected to this board\"><span class=\"pulse-dot\"></span> <span id=\"peer-count\">1</span> <span>online</span></div><span id=\"net-status\" class=\"text-xs text-warning hidden\" title=\"Connection status\"></span> <a class=\"btn btn-sm btn-ghost\" href=\"/whiteboard\">Back</a></div><div class=\"relative flex-1 overflow-hidden bg-base-100\" id=\"canvas-wrap\"><canvas id=\"wb-canvas\" class=\"absolute inset-0 w-full h-full block cursor-crosshair\"></canvas><div id=\"cursors\" class=\"absolute inset-0 pointer-events-none\"></div></div></main><script defer src=\"/static/whiteboard.js\"></script><script>\n\t\t\t\t// The doc id is carried on <main data-doc-id> (templ escapes\n\t\t\t\t// attribute values safely). Reading it from the DOM avoids the\n\t\t\t\t// earlier JS-string-escaping pitfalls (templ.URL() emitted a full\n\t\t\t\t// URL and templ.JSEscape() produced unquoted output — both threw\n\t\t\t\t// \"WB_DOC_ID missing\" / \"Unexpected token '.'\").\n\t\t\t\twindow.WB_DOC_ID = document.querySelector(\"main\")?.dataset.docId || \"\";\n\t\t\t</script></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

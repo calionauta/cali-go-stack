@@ -121,6 +121,20 @@ func ensureWhiteboardsCollection(app core.App) error {
 			&core.DateField{Name: "updated"},
 		)
 	}
+	// RULES: any authenticated user may list/view whiteboards so the
+	// PocketBase realtime subscription works for every logged-in user.
+	// The app's own server-side rendering bypasses these API rules (it
+	// queries via the Dao), so this only governs the PB realtime channel.
+	wbViewRule := "@request.auth.id != ''"
+	if col.ListRule == nil || *col.ListRule != wbViewRule {
+		r := wbViewRule
+		col.ListRule = &r
+	}
+	if col.ViewRule == nil || *col.ViewRule != wbViewRule {
+		r := wbViewRule
+		col.ViewRule = &r
+	}
+
 	if err := app.Save(col); err != nil {
 		return fmt.Errorf("seed: save whiteboards collection: %w", err)
 	}

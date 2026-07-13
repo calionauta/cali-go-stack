@@ -17,8 +17,11 @@ type BoardMeta struct {
 	DocVer int
 }
 
-// BoardList renders the index of existing whiteboards.
-templ BoardList(email string, boards []BoardMeta) {
+// BoardListWithRealtime renders the index of existing whiteboards with
+// PocketBase realtime wiring so the list updates live when another user
+// creates a new board. Follows the same pattern as the todo feature's
+// PbRealtimeRecords: a hidden @get button + EventSource subscription.
+templ BoardListWithRealtime(email string, boards []BoardMeta) {
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>
@@ -30,6 +33,7 @@ templ BoardList(email string, boards []BoardMeta) {
 			@auth.ThemeHead()
 			<script defer type="module" src="/static/theme.js"></script>
 			<script src="https://cdn.jsdelivr.net/npm/iconify-icon@2.1.0/dist/iconify-icon.min.js"></script>
+			<script defer type="module" src="/static/datastar.js"></script>
 		</head>
 		<body>
 			@auth.Navbar(email, "whiteboard")
@@ -38,20 +42,62 @@ templ BoardList(email string, boards []BoardMeta) {
 					<h1 class="text-2xl font-bold">Whiteboards</h1>
 					<a class="btn btn-primary" href="/whiteboard/new">New whiteboard</a>
 				</div>
-				<div class="grid gap-2">
-					if len(boards) == 0 {
-						<p class="text-base-content/60">No whiteboards yet. Create one to start drawing together.</p>
-					}
-					for _, b := range boards {
-						<a class="card card-bordered bg-base-200 p-4 hover:bg-base-300" href={ "/whiteboard/" + b.DocID }>
-							<div class="font-mono text-sm">{ b.DocID }</div>
-							<div class="text-xs text-base-content/60">version { b.DocVer }</div>
-						</a>
-					}
-				</div>
+				@WhiteboardListFragment(boards)
 			</main>
+			<button
+				id="wb-realtime-resync"
+				type="button"
+				class="hidden"
+				data-on:click={ "@get('/api/whiteboards/fragment')" }
+				aria-hidden="true"
+			></button>
+			<script type="module">
+				var clientID = 'wb-' + Math.random().toString(36).slice(2, 10);
+				var es = new EventSource('/api/realtime?clientId=' + encodeURIComponent(clientID));
+				function subscribe(clientId) {
+					fetch('/api/realtime', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ clientId: clientId, action: 'subscribe', subscriptions: ['whiteboards'] })
+					}).catch(function () {});
+				}
+				function resync() {
+					var b = document.getElementById('wb-realtime-resync');
+					if (b) { b.click(); }
+				}
+				es.addEventListener('PB_CONNECT', function (e) {
+					var msg;
+					try { msg = JSON.parse(e.data); } catch (_) { return; }
+					if (!msg.clientId) { return; }
+					es.addEventListener('whiteboards', onRecord);
+					subscribe(msg.clientId);
+					resync();
+				});
+				document.addEventListener('visibilitychange', function () {
+					if (!document.hidden) { resync(); }
+				});				function onRecord(e) {
+					resync();
+				}
+				</script>
 		</body>
 	</html>
+}
+
+// WhiteboardListFragment renders just the whiteboard list grid. It is the
+// target of the @get('/api/whiteboards/fragment') resync and carries the
+// id="whiteboard-list" selector that the server sets datastar-selector for.
+templ WhiteboardListFragment(boards []BoardMeta) {
+	<div id="whiteboard-list" class="grid gap-2">
+		if len(boards) == 0 {
+			<p class="text-base-content/60">No whiteboards yet. Create one to start drawing together.</p>
+		}
+		for _, b := range boards {
+			<a class="card card-bordered bg-base-200 p-4 hover:bg-base-300" href={ "/whiteboard/" + b.DocID }>
+				<div class="font-mono text-sm">{ b.DocID }</div>
+				<div class="text-xs text-base-content/60">version { b.DocVer }</div>
+			</a>
+		}
+	</div>
 }
 
 // Board renders the interactive canvas for one whiteboard doc. The

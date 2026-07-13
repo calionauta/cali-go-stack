@@ -73,6 +73,7 @@ func (h *Handler) RegisterRoutesOn(r *router.Router[*core.RequestEvent]) {
 	r.GET("/whiteboard", h.handleIndex)
 	r.GET("/whiteboard/new", h.handleNew)
 	r.GET("/whiteboard/{docID}", h.handleBoard)
+	r.GET("/api/whiteboards/fragment", h.handleListFragment)
 	r.GET("/api/whiteboard/{docID}/stream", h.handleStream)
 	r.POST("/api/whiteboard/{docID}/update", h.handleUpdate)
 	r.POST("/api/whiteboard/{docID}/presence", h.handlePresence)
@@ -106,15 +107,53 @@ func (h *Handler) handleIndex(c *core.RequestEvent) error {
 	return nil
 }
 
-// handleNew creates a new whiteboard doc id and redirects to its board.
-// Uses a real 302 redirect (not HX-Redirect) so a plain <a href>
-// navigation from the index page works without HTMX.
+// handleNew creates a new whiteboard record in PocketBase and redirects
+// to its board page. Creating the record immediately (rather than waiting
+// for a shape to be drawn) means PocketBase realtime broadcasts the
+// new board to every subscriber of the "whiteboards" topic, so the list
+// updates live for all connected clients.
 func (h *Handler) handleNew(c *core.RequestEvent) error {
 	if err := auth.RequireAuthOrRedirect(c); err != nil {
 		return err
 	}
 	docID := uuid.NewString()
+
+	// Create a PocketBase record so realtime subscribers see it.
+	col, err := h.app.FindCollectionByNameOrId("whiteboards")
+	if err == nil {
+		rec := core.NewRecord(col)
+		rec.Set("doc_id", docID)
+		rec.Set("version", 0)
+		if c.Auth != nil {
+			rec.Set("owner", c.Auth.Id)
+		}
+		if saveErr := h.app.Save(rec); saveErr != nil {
+			slog.Warn("whiteboard: save new board record", "doc", docID, "error", saveErr)
+		}
+	}
+
 	return c.Redirect(http.StatusFound, "/whiteboard/"+docID)
+}
+
+// handleListFragment returns the whiteboard list as a plain HTML fragment
+// so a client can morph #whiteboard-list after a PocketBase realtime
+// record change. Follows the same pattern as /api/todos/fragment.
+func (h *Handler) handleListFragment(c *core.RequestEvent) error {
+	records, err := h.app.FindRecordsByFilter("whiteboards", "", "-updated", whiteboardListLimit, 0)
+	if err != nil {
+		records = nil
+	}
+	boards := make([]BoardMeta, 0, len(records))
+	for _, r := range records {
+		boards = append(boards, BoardMeta{
+			DocID:  r.GetString("doc_id"),
+			DocVer: r.GetInt("version"),
+		})
+	}
+	c.Response.Header().Set("Content-Type", "text/html; charset=utf-8")
+	c.Response.Header().Set("datastar-selector", "#whiteboard-list")
+	c.Response.Header().Set("datastar-mode", "outer")
+	return WhiteboardListFragment(boards).Render(c.Request.Context(), c.Response)
 }
 
 // handleBoard renders the interactive canvas for one doc. It rehydrates
@@ -379,10 +418,11 @@ func (h *Handler) handleSnapshot(c *core.RequestEvent) error {
 	return c.JSON(http.StatusOK, h.worker.Shapes(docID))
 }
 
-// renderBoardList writes the index page.
+// renderBoardList writes the index page with PocketBase realtime wiring
+// so the whiteboard list updates live when another user creates a board.
 func renderBoardList(c *core.RequestEvent, email string, boards []BoardMeta) error {
 	c.Response.Header().Set("Content-Type", "text/html; charset=utf-8")
-	return BoardList(email, boards).Render(c.Request.Context(), c.Response)
+	return BoardListWithRealtime(email, boards).Render(c.Request.Context(), c.Response)
 }
 
 // renderBoard writes the interactive board page.
