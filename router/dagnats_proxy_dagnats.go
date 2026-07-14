@@ -1,3 +1,4 @@
+// SCOPE:pluggable - REMOVE if not using DagNats dashboard.
 package router
 
 import (
@@ -41,13 +42,12 @@ func mountDagNatsDashboard(se *core.ServeEvent, upstream string) {
 		return
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
-	orig := proxy.Director
-	proxy.Director = func(r *http.Request) {
-		orig(r)
+	proxy.Rewrite = func(r *httputil.ProxyRequest) {
+		r.SetURL(target)
 		// Strip the /dagnats prefix so upstream sees e.g. /console/.
-		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/dagnats")
-		if r.URL.Path == "" {
-			r.URL.Path = "/"
+		r.Out.URL.Path = strings.TrimPrefix(r.Out.URL.Path, "/dagnats")
+		if r.Out.URL.Path == "" {
+			r.Out.URL.Path = "/"
 		}
 	}
 	// Rewrite absolute paths in responses back to the /dagnats subpath.
@@ -105,6 +105,7 @@ func rewriteDagNatsPaths(resp *http.Response) error {
 	rewritten := dagNatsPathRe.ReplaceAllStringFunc(string(body), func(m string) string {
 		// Re-run a simple capture to prefix only the path part.
 		sub := dagNatsPathRe.FindStringSubmatch(m)
+		//nolint:mnd // 4 is the minimum match group size for the regex
 		if len(sub) < 4 {
 			return m
 		}

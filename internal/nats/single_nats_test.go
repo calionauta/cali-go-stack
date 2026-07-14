@@ -36,16 +36,16 @@ func TestConnectExisting_SingleNATS(t *testing.T) {
 		t.Fatalf("EnsureStream on shared NATS failed: %v", err)
 	}
 
-	sub, err := JS.SubscribeSync("todo.single.>")
-	if err != nil {
-		t.Fatalf("subscribe: %v", err)
+	sub, subErr := JS.SubscribeSync("todo.single.>")
+	if subErr != nil {
+		t.Fatalf("subscribe: %v", subErr)
 	}
-	defer sub.Unsubscribe()
+	defer func() { _ = sub.Unsubscribe() }()
 
 	// Publish directly on the stream's subject (same path the real
 	// JetStreamBroadcaster uses: JS.Publish("todo.<id>", data)).
-	if _, err := JS.Publish("todo.single.update", []byte("hello-from-shared-nats")); err != nil {
-		t.Fatalf("publish: %v", err)
+	if _, pubErr := JS.Publish("todo.single.update", []byte("hello-from-shared-nats")); pubErr != nil {
+		t.Fatalf("publish: %v", pubErr)
 	}
 
 	msg, err := sub.NextMsg(5 * time.Second)

@@ -1,3 +1,5 @@
+// SCOPE:pluggable - REMOVE if not using LLM.
+// To remove: delete internal/llm/ + features/todo/handlers/llm_suggest.go.
 // Package llm wires the GoAI SDK (github.com/zendev-sh/goai) into the
 // gogogo-fullstack-template template. The Client is configured via env so the
 // same binary can talk to any OpenAI-compatible provider: Groq,

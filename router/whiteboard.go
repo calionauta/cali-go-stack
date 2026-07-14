@@ -1,6 +1,11 @@
+// SCOPE:feature - REMOVE if not using whiteboard.
 package router
 
 import (
+	"io/fs"
+	"log"
+	"net/http"
+
 	"github.com/pocketbase/pocketbase/core"
 
 	"github.com/calionauta/gogogo-fullstack-template/features/whiteboard"
@@ -9,17 +14,49 @@ import (
 	"github.com/calionauta/gogogo-fullstack-template/internal/queue"
 )
 
-// registerWhiteboard wires the collaborative whiteboard with NATS as the
-// default cross-instance transport. Creates the shared DocStore that both
-// the whiteboard's WebSyncWorker and the SyncWorker (collab sync) use, so
+// registerWhiteboard wires the collaborative whiteboard with a dedicated
+// SSEHub (separate from the todo feature's hub) and NATS as the optional
+// cross-instance transport. Creates the shared DocStore that both the
+// whiteboard's WebSyncWorker and the SyncWorker (collab sync) use, so
 // browser ops and NATS-delivered updates converge the same in-memory docs.
 //
+// hub is a SEPARATE SSEHub instance (not q.Hub()) so whiteboard events
+// never reach todo clients and vice-versa. Pass queue.NewSSEHub() from
+// router.Init.
+//
+// Also serves the whiteboard's own static assets (rough.min.js,
+// whiteboard.js) via exact /static/* routes — same pattern as core
+// static assets in router.go. These move with the feature on removal.
+//
 // Returns the DocStore for registerCollabSync to use.
-func registerWhiteboard(se *core.ServeEvent, q *queue.Queue) *collab.DocStore {
+func registerWhiteboard(se *core.ServeEvent, _ *queue.Queue, hub *queue.SSEHub) *collab.DocStore {
 	docs := collab.NewDocStore()
 	persister := collab.NewPocketBasePersister(se.App)
 	nc := nats.Conn() // may be nil if NATS not started; WebSyncWorker handles nil
-	h := whiteboard.New(se.App, q.Hub(), persister, docs, nc)
+
+	// Serve whiteboard static assets (rough.min.js, whiteboard.js) so the
+	// feature is self-contained: when the package is removed, its static
+	// assets go with it. Same exact-route pattern as core static assets.
+	staticFS := whiteboard.StaticFS()
+	if err := fs.WalkDir(staticFS, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		route := "/static/" + path
+		se.Router.GET(route, func(c *core.RequestEvent) error {
+			hs := http.StripPrefix("/static/", http.FileServer(http.FS(staticFS)))
+			hs.ServeHTTP(c.Response, c.Request)
+			return nil
+		})
+		return nil
+	}); err != nil {
+		log.Printf("whiteboard: error walking static assets: %v", err)
+	}
+
+	h := whiteboard.New(se.App, hub, persister, docs, nc)
 	h.RegisterRoutes(se)
 	return docs
 }

@@ -31,7 +31,7 @@ var dagNatsServer *server.Server
 // is ConnectExisting (called by startNATS right after), which uses
 // nats.RetryOnFailedConnect to block until the engine's NATS is
 // reachable — no polling loop in our code.
-func startDagNats(cfg *config.Config, app *pocketbase.PocketBase, todoH *handlers.TodoHandler) {
+func startDagNats(cfg *config.Config, _ *pocketbase.PocketBase, todoH *handlers.TodoHandler) {
 	if !cfg.DagNats.Enabled {
 		return
 	}
@@ -49,7 +49,8 @@ func startDagNats(cfg *config.Config, app *pocketbase.PocketBase, todoH *handler
 	// refactoring Go never orphans an in-flight workflow.
 	shim := server.EmbeddedWorker(srv)
 	shim.Handle("onboarding-greet", func(ctx worker.TaskContext) error {
-		time.Sleep(1500 * time.Millisecond) // visible pace
+		const greetDelay = 1500 * time.Millisecond
+		time.Sleep(greetDelay) // visible pace
 		log.Printf("dagnats: onboarding greet")
 		return ctx.Complete([]byte(`"welcomed"`))
 	})
@@ -60,7 +61,8 @@ func startDagNats(cfg *config.Config, app *pocketbase.PocketBase, todoH *handler
 	// without polling or an in-memory flag.
 	shim.Handle("onboarding-await-first-todo", func(ctx worker.TaskContext) error {
 		log.Printf("dagnats: awaiting first todo signal for run %s", ctx.RunID())
-		_, err := ctx.WaitForSignal("first-todo", 50*time.Minute)
+		const signalTimeout = 50 * time.Minute
+		_, err := ctx.WaitForSignal("first-todo", signalTimeout)
 		if err != nil {
 			log.Printf("dagnats: await first-todo timed out/failed: %v", err)
 			return ctx.Fail(err)
@@ -106,7 +108,7 @@ func startDagNats(cfg *config.Config, app *pocketbase.PocketBase, todoH *handler
 // srv.Run binds the port).
 func registerOnboardingWorkflowWithRetry(httpAddr string) {
 	client := dagnats.NewClient("http://" + httpAddr)
-	for attempt := 0; attempt < 30; attempt++ {
+	for range 30 {
 		if err := client.RegisterWorkflow(context.Background(), []byte(dagnats.OnboardingWorkflowJSON)); err != nil {
 			time.Sleep(500 * time.Millisecond)
 			continue

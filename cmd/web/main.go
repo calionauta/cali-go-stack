@@ -1,3 +1,4 @@
+// SCOPE:core - DO NOT REMOVE - Server entry point. This is the main binary.
 // Package main wires the binary's startup sequence: PocketBase, the
 // goqite queue, optional NATS JetStream realtime, the DagNats durable
 // workflow engine (build tag dagnats), and the HTTP routes. Run with

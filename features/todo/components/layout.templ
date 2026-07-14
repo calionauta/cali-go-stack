@@ -26,8 +26,20 @@ templ Layout(title string, signals todo.Signals, userEmail string) {
 			<link rel="stylesheet" href="/static/app.css"/>
 			@auth.ThemeHead()
 			<script defer type="module" src="/static/theme.js"></script>
-			<script src="https://cdn.jsdelivr.net/npm/iconify-icon@2.1.0/dist/iconify-icon.min.js"></script>
+			<script src="/static/iconify-icon.min.js"></script>
 			<script defer type="module" src="/static/datastar.js"></script>
+			<script>
+				// Register Service Worker for offline PocketBase API support.
+				// GET requests use stale-while-revalidate cache; mutations are
+				// queued in IndexedDB and replayed via Background Sync on reconnect.
+				// SSE streams and whiteboard endpoints are NOT intercepted.
+				if ('serviceWorker' in navigator) {
+					navigator.serviceWorker.register('/static/sw.js').catch(function () {
+						// SW registration failed — offline support degraded but app
+						// still works (no caching, no offline queue).
+					});
+				}
+			</script>
 			<style>
 				/* Stacking container: fixed bottom-right, toasts stack upward. */
 				#toast-container {

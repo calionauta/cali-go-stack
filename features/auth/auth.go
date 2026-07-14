@@ -1,3 +1,4 @@
+// SCOPE:core - DO NOT REMOVE - Login/logout with PocketBase + gogogo_auth cookie.
 // Package auth implements a single-user demo login on top of
 // PocketBase's built-in auth API.
 //

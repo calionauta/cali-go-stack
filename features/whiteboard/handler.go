@@ -1,3 +1,5 @@
+// SCOPE:feature - REMOVE if not using collaborative whiteboard.
+// Depends on: internal/collab/ (CRDT), internal/nats/ (NATS sync).
 // Package whiteboard implements a minimal collaborative whiteboard:
 // an HTML5 canvas rendered with rough.js (hand-drawn style) and backed
 // by a Loro CRDT (github.com/aholstenson/loro-go) for conflict-free
@@ -26,15 +28,16 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
 
+	natsio "github.com/nats-io/nats.go"
+
+	"github.com/calionauta/gogogo-fullstack-template/config"
 	"github.com/calionauta/gogogo-fullstack-template/features/auth"
 	"github.com/calionauta/gogogo-fullstack-template/internal/collab"
 	"github.com/calionauta/gogogo-fullstack-template/internal/queue"
-	natsio "github.com/nats-io/nats.go"
 )
 
 const (
 	whiteboardListLimit = 50
-	sseChanBuf          = 64
 )
 
 // Handler serves the whiteboard routes. It holds the shared WebSyncWorker
@@ -189,6 +192,8 @@ func (h *Handler) handleBoard(c *core.RequestEvent) error {
 // both shape updates and presence events on this single stream. The auth
 // cookie is loaded explicitly (the /api prefix is skipped by the global
 // middleware) so the stream is scoped to the logged-in user.
+//
+//nolint:gocyclo // SSE lifecycle is inherently sequential.
 func (h *Handler) handleStream(c *core.RequestEvent) error {
 	if err := auth.LoadAppAuth(c); err != nil {
 		slog.Warn("whiteboard: stream auth load", "error", err)
@@ -216,7 +221,7 @@ func (h *Handler) handleStream(c *core.RequestEvent) error {
 	// join was broadcast before Register, which meant a client that opened
 	// the board after others never learned those peers existed, leaving
 	// the "X online" count wrong.)
-	ch := make(chan []byte, sseChanBuf)
+	ch := make(chan []byte, config.DefaultClientQueueSize)
 	h.hub.Register(clientID, "", ch)
 	defer func() {
 		h.hub.UnregisterIfCurrent(clientID, ch)
@@ -266,7 +271,7 @@ func (h *Handler) handleStream(c *core.RequestEvent) error {
 	// never learn the client disconnected and would leak a goroutine and a
 	// registered hub client indefinitely. The heartbeat write forces Go's
 	// HTTP server to detect the closed connection and cancel the context.
-	heartbeat := time.NewTicker(15 * time.Second)
+	heartbeat := time.NewTicker(config.DefaultSSEHeartbeatInterval)
 	defer heartbeat.Stop()
 
 	ctx := c.Request.Context()
@@ -311,7 +316,21 @@ func (h *Handler) peerJoin(docID, clientID string) []string {
 
 // peerLeave removes clientID from docID's peer set and broadcasts a
 // "leave" to every remaining client. Called on SSE disconnect.
+//
+// Before removing, it checks whether the clientID is still registered in
+// the SSE hub (meaning a new handler re-registered it during an EventSource
+// reconnect). If so, the leave is skipped — the new handler's peerJoin
+// already re-added the client, and broadcasting a "leave" would make other
+// tabs briefly drop the peer count, then re-add it on the next "join".
+// This prevents the 1→0→1→0 oscillation seen in the reconnect race.
 func (h *Handler) peerLeave(docID, clientID string) {
+	// Guard: if the client reconnected (a new handler registered the same
+	// clientID), don't remove it from the peer set. The new handler's
+	// peerJoin already added it, and broadcasting a "leave" would make
+	// other tabs briefly drop their peer count (fluctuation on reconnect).
+	if h.hub.IsRegistered(clientID) {
+		return
+	}
 	h.peersMu.Lock()
 	if set, ok := h.peers[docID]; ok {
 		delete(set, clientID)
@@ -382,13 +401,16 @@ func (h *Handler) handleUpdate(c *core.RequestEvent) error {
 	if err != nil {
 		return c.String(http.StatusBadRequest, "apply op: "+err.Error())
 	}
-	// Broadcast the resolved shapes to EVERY client on the doc (including
-	// the originator). The originator drew optimistically and cleared its
-	// in-progress shape on pointerup; receiving the authoritative shapes
-	// back keeps it convergent and — critically — means the local tab does
-	// NOT lose the shape it just drew.
+	// Broadcast the resolved shapes to every OTHER client on the doc
+	// (BroadcastExcept, excludes originator). This is the standard CRDT
+	// "no-echo" pattern (Yjs, Liveblocks, tldraw): the originator already
+	// has the shape optimistically in its local `shapes` array (see
+	// whiteboard.js pointerup handler), so echoing it back would cause
+	// redundant re-renders. The HTTP 200 response confirms the shape was
+	// persisted; on reconnect, the client gets the authoritative set from
+	// the initial shapes message (handleStream -> h.worker.Shapes).
 	//
-	// The broadcast happens inside ApplyOp (via Broadcast to everyone),
+	// The broadcast happens inside ApplyOp (via BroadcastExcept),
 	// so we do NOT call Broadcast again here — that would send duplicate
 	// events to peers.
 

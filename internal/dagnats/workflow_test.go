@@ -2,6 +2,7 @@ package dagnats
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -52,7 +53,7 @@ func TestOnboardingWorkflow_HandlerNamesMatch(t *testing.T) {
 	}
 	_ = json.Unmarshal([]byte(OnboardingWorkflowJSON), &raw)
 	byID := map[string]struct {
-		DependsOn []string `json:"depends_on"`
+		DependsOn []string `json:"dependsOn"`
 	}{}
 	for _, step := range raw.Steps {
 		id := strings.Trim(string(step["id"]), `"`)
@@ -61,7 +62,7 @@ func TestOnboardingWorkflow_HandlerNamesMatch(t *testing.T) {
 			_ = json.Unmarshal(d, &deps)
 		}
 		byID[id] = struct {
-			DependsOn []string `json:"depends_on"`
+			DependsOn []string `json:"dependsOn"`
 		}{DependsOn: deps}
 	}
 	if !dependsOn(byID, "await-first-todo", "greet") {
@@ -76,13 +77,8 @@ func TestOnboardingWorkflow_HandlerNamesMatch(t *testing.T) {
 }
 
 func dependsOn(steps map[string]struct {
-	DependsOn []string `json:"depends_on"`
+	DependsOn []string `json:"dependsOn"`
 }, id, dep string,
 ) bool {
-	for _, d := range steps[id].DependsOn {
-		if d == dep {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(steps[id].DependsOn, dep)
 }

@@ -104,9 +104,9 @@ func (p *WebPresence) Subscribe(ctx context.Context, clientID string) error {
 func (p *WebPresence) apply(msg PresenceMsg) {
 	p.mu.Lock()
 	switch msg.Type {
-	case "leave":
+	case presenceLeave:
 		delete(p.roster, msg.User)
-	case "cursor", "join":
+	case presenceCursor, presenceJoin:
 		p.roster[msg.User] = msg
 	}
 	handlers := append([]func(PresenceMsg){}, p.handlers...)

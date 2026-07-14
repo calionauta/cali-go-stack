@@ -279,7 +279,7 @@ func (s *FakeServer) writeStatusOrSuccess(w http.ResponseWriter, n int64) bool {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	body := `{"error":{"message":"forced "` + fmt.Sprint(status) + `","type":"server_error"}}`
-	_, _ = io.WriteString(w, body) //nolint:errcheck
+	_, _ = io.WriteString(w, body)
 	return false
 }
 
@@ -295,7 +295,7 @@ func (s *FakeServer) singleResponse(w http.ResponseWriter, _ openAIRequest) {
 	}{})
 	resp.Choices[0].Message.Role = "assistant"
 	resp.Choices[0].Message.Content = s.opts.cannedResponse
-	_ = json.NewEncoder(w).Encode(resp) //nolint:errcheck
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // streamResponse writes the streaming chunks as
@@ -334,11 +334,11 @@ func (s *FakeServer) streamResponse(w http.ResponseWriter, _ openAIRequest) {
 			} `json:"delta"`
 		}{})
 		c.Choices[0].Delta.Content = chunk
-		data, _ := json.Marshal(c) //nolint:errcheck
+		data, _ := json.Marshal(c)
 		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 		flusher.Flush()
 	}
-	_, _ = io.WriteString(w, "data: [DONE]\n\n") //nolint:errcheck
+	_, _ = io.WriteString(w, "data: [DONE]\n\n")
 	flusher.Flush()
 }
 

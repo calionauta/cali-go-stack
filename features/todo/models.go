@@ -1,3 +1,5 @@
+// SCOPE:feature - REMOVE if not using the Todo MVC example.
+// To remove: delete features/todo/ and the todo block in router/router.go Init().
 package todo
 
 import "time"

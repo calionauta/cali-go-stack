@@ -4,22 +4,14 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+
+	"github.com/calionauta/gogogo-fullstack-template/config"
 )
 
-// Default values for the SSEHub knobs. Exposed as consts so callers
-// can reference them in tests and config wiring.
-const (
-	// DefaultReplayBufferSize is the per-client ring-buffer length
-	// kept while no client is connected. Sized for ~64KB of
-	// Datastar patch-signals at ~1KB each.
-	DefaultReplayBufferSize = 64
-
-	// DefaultClientQueueSize is the per-client channel buffer the
-	// caller is expected to use when calling Register. We document it
-	// but don't enforce it (the caller passes a pre-made channel).
-	DefaultClientQueueSize = 32
-)
-
+// SCOPE:core - DO NOT REMOVE - SSE Hub (in-memory fan-out, replay buffer, backpressure).
+// Runtime defaults (DefaultReplayBufferSize, DefaultClientQueueSize,
+// DefaultSSEHeartbeatInterval) are now defined in config/config.go —
+// tune there to affect every consumer.
 // SSEHubStats is a snapshot of the hub's current resource use. Returned
 // by Stats() so operators can observe backpressure and reconnection
 // churn. Cheap to compute; safe to call on a hot path.
@@ -95,7 +87,7 @@ func NewSSEHub(opts ...HubOption) *SSEHub {
 		clients:   make(map[string]chan []byte),
 		buffer:    make(map[string][][]byte),
 		userOf:    make(map[string]string),
-		maxBuffer: DefaultReplayBufferSize,
+		maxBuffer: config.DefaultReplayBufferSize,
 		onDrop: func(clientID string, _ []byte, reason string) {
 			slog.Warn("ssehub: dropping event", "client_id", clientID, "reason", reason)
 		},
@@ -300,6 +292,17 @@ func (h *SSEHub) BroadcastToUser(data []byte, userID, excludeClientID string) {
 			h.onDrop(id, data, "slow-client-broadcast-user")
 		}
 	}
+}
+
+// IsRegistered returns true if clientID has an active registration in
+// the hub (i.e. a channel is associated with it). Used by peerLeave to
+// detect whether a client reconnected before the old handler's deferred
+// cleanup runs, preventing the stale handler from removing a live peer.
+func (h *SSEHub) IsRegistered(clientID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	_, ok := h.clients[clientID]
+	return ok
 }
 
 // Stats returns a snapshot of the hub's current resource use. Use

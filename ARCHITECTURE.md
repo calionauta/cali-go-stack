@@ -14,30 +14,32 @@
 
 ---
 
-## Layer taxonomy
+> **SCOPE annotations in code.** Every source file carries a `SCOPE` comment at the top. This table uses the same taxonomy so the two are always in sync. The `SCOPE` annotations in source files are the authoritative reference; this table is a summary.
 
-Every component belongs to one of three layers:
+## Layer taxonomy (SCOPE)
 
-| Layer | Meaning | You would… |
+Every component belongs to one of three layers, matching the `SCOPE:` annotation in each source file:
+
+| SCOPE | Meaning | You would… |
 |:------|:--------|:-----------|
-| **Core** 🔴 | Binary does not work without it. | Customize, never remove. |
-| **Infra** 🟡 | Binary works but loses capability if removed. | Swap for an equivalent. |
-| **Plugin** 🟢 | A demo/add-on that plugs into the infra. Remove with no side effects. | Delete the package + remove the wiring call. |
+| **Core** 🔴 `SCOPE:core` | Binary does not work without it. | Customize, never remove. |
+| **Pluggable** 🟡 `SCOPE:pluggable` | Binary works but loses capability if removed. Clear removal instructions inline. | Swap for an equivalent, or delete + remove wiring call. |
+| **Feature** 🟢 `SCOPE:feature` | A demo/add-on. Depends on other packages (listed in comment). | Delete the package + dependent packages + remove wiring call. |
 
 ---
 
 ## Features (features/)
 
-These are **product-level demos** — what the end user sees. All are Plugin layer: you can remove, replace, or keep them.
+These are **product-level demos** — what the end user sees. All are Feature layer: you can remove, replace, or keep them.
 
-| Feature | Package | Layer | Router wiring | Remove by |
+| Feature | Package | SCOPE | Router wiring | Remove by |
 |---------|---------|:-----:|---------------|-----------|
 | **Auth** | `features/auth/` | 🟢/🔴 | `auth.RegisterAuth(se)` | Delete package + remove call |
-| **Todo** | `features/todo/` | 🟢 | `todoH.RegisterRoutes(se)` | Delete package + remove block |
-| **Whiteboard** | `features/whiteboard/` + `internal/collab/` | 🟢 | `registerWhiteboard(se, q)` | Delete both + `whiteboard.js` + remove call |
-| **Onboarding** | `features/todo/handlers/onboarding.go` + `internal/dagnats/` | 🟢 | `registerOnboarding(...)` | Delete both + remove call |
+| **Todo** | `features/todo/` | 🟢 FEATURE | `todoH.RegisterRoutes(se)` | Delete package + remove block |
+| **Whiteboard** | `features/whiteboard/` + `internal/collab/` | 🟢 FEATURE | `registerWhiteboard(se, q)` | Delete both + `whiteboard.js` + remove call |
+| **Onboarding** | `features/todo/handlers/onboarding.go` + `internal/dagnats/` | 🟢 FEATURE | `registerOnboarding(...)` | Delete both + remove call |
 
-> **⚠️ Auth is a mixed package.** The **login UI** (login page, navbar) is 🟢 Plugin — replace with OAuth, SSO, etc. The **auth middleware** (`LoadAuthFromCookie`) is 🔴 Core — the app's security model depends on it. They live in the same package for cohesion; if you replace the UI, keep the middleware functions.
+> **⚠️ Auth is a mixed package.** The **login UI** (login page, navbar) is 🟢 FEATURE — replace with OAuth, SSO, etc. The **auth middleware** (`LoadAuthFromCookie`) is 🔴 CORE — the app's security model depends on it. They live in the same package for cohesion; if you replace the UI, keep the middleware functions.
 
 ---
 
@@ -45,21 +47,74 @@ These are **product-level demos** — what the end user sees. All are Plugin lay
 
 These are the **plumbing layers**. Each is independently replaceable.
 
-| Component | Package | Layer | Startup | Swap / Remove by |
+| Component | Package | SCOPE | Startup | Swap / Remove by |
 |-----------|---------|:-----:|---------|------------------|
-| **PocketBase** (DB + Auth + API) | `db/` | 🔴 | `db.Init(cfg)` in `server.Run()` | Replace with your own DB + auth stack |
-| **Config** | `config/` | 🔴 | `config.Load()` in `main.go` | Add/remove env vars |
-| **Queue + SSE Hub** (goqite) | `internal/queue/` | 🔴 | `queue.New(cfg)` in `server.Run()` | Replace goqite with Redis; SSE Hub is in `ssehub.go` |
-| **Event bus: NATS JetStream** | `internal/nats/` | 🟡 | `startNATS(cfg)` in `main.go` | Remove `startNATS` call; falls back to in-memory fan-out via SSE Hub |
-| **DagNats** (workflows) | `internal/dagnats/` | 🟢 | `startDagNats(cfg, pb, ...)` in `main.go` | Remove call + delete package |
-| **CRDT + Sync** (Loro) | `internal/collab/` | 🟢 | Via `registerWhiteboard` + `registerCollabSync` | Delete with whiteboard |
-| **SSE helpers** (Datastar) | `internal/datastar/` | 🟡 | Imported by handlers | Replace with your own SSE rendering |
-| **Secrets** (age) | `internal/secrets/` | 🟡 | `secrets.Load(appName)` in `config.Load()` | Remove call; env vars work without it |
-| **LLM client** (GoAI) | `internal/llm/` | 🟢 | `llm.New(apiKey)` in `server.Run()` | Remove env var; UI auto-hides the Suggest button. *The package stays if you add your own AI feature — only the demo Suggest route is removable.* |
+| **PocketBase** (DB + Auth + API) | `db/` | 🔴 CORE | `db.Init(cfg)` in `server.Run()` | Replace with your own DB + auth stack |
+| **Config** | `config/` | 🔴 CORE | `config.Load()` in `main.go` | Add/remove env vars |
+| **Queue + SSE Hub** (goqite) | `internal/queue/` | 🔴 CORE | `queue.New(cfg)` in `server.Run()` | Replace goqite with Redis; SSE Hub is in `ssehub.go` |
+| **Event bus: NATS JetStream** | `internal/nats/` | 🟡 PLUGGABLE | `startNATS(cfg)` in `main.go` | Remove `startNATS` call; falls back to in-memory fan-out via SSE Hub |
+| **CRUD proxy (offline sync)** | `internal/nats/crudproxy.go` | 🟡 PLUGGABLE | `NewCrudPublisher(js)` + `NewCrudConsumer(app, js)` in `router.Init()` | Remove `crudproxy.go`; toggle via `OFFLINE_SYNC_ENABLED=false` (default on) |
+| **DagNats** (workflows) | `internal/dagnats/` | 🟡 PLUGGABLE | `startDagNats(cfg, pb, ...)` in `main.go` | Remove call + delete package |
+| **CRDT + Sync** (Loro) | `internal/collab/` | 🟡 PLUGGABLE | Via `registerWhiteboard` + `registerCollabSync` | Delete with whiteboard |
+| **SSE helpers** (Datastar) | `internal/datastar/` | 🟡 PLUGGABLE | Imported by handlers | Replace with your own SSE rendering |
+| **Secrets** (age) | `internal/secrets/` | 🔴 CORE | `secrets.Load(appName)` in `config.Load()` | Remove call; env vars work without it |
+| **LLM client** (GoAI) | `internal/llm/` | 🟡 PLUGGABLE | `llm.New(apiKey)` in `server.Run()` | Remove env var; UI auto-hides the Suggest button. *The package stays if you add your own AI feature — only the demo Suggest route is removable.* |
 
-> **🔴 Core** = keep or replace the whole stack.  
-> **🟡 Infra** = you could remove it and still serve pages, but lose cross-instance broadcast, async jobs, etc.  
-> **🟢 Plugin** = pure add-on. Delete the package, remove the wiring call, nothing breaks.
+> **🔴 CORE** = keep or replace the whole stack.  
+> **🟡 PLUGGABLE** = you could remove it and still serve pages, but lose cross-instance broadcast, async jobs, etc.  
+> **🟢 FEATURE** = pure demo. Delete the package, remove the wiring call, nothing breaks.
+
+## Offline strategy for PocketBase features (todo, CRUD records)
+
+PocketBase is a server-side SQLite database — it **cannot work offline natively.** Features like the todo app that use PocketBase directly (REST + realtime SSE) fail when the client loses connectivity. Here is the recommended strategy for our stack:
+
+### Recommended: Service Worker + Background Sync (Web)
+
+```
+Browser                          Server
+┌──────────────────┐            ┌──────────────────────┐
+│  IndexedDB cache │            │  PocketBase           │
+│  (Dexie.js)      │  ◄── REST ─┤  (source of truth)    │
+│                  │            │                       │
+│  Service Worker  │  ── POST ─►│  Realtime SSE         │
+│  (Background     │  (replay   │  (when online)        │
+│   Sync API)      │   offline) │                       │
+└──────────────────┘            └──────────────────────┘
+```
+
+**How it works:**
+1. A **Service Worker** intercepts all fetch requests to the PocketBase API
+2. Online: requests pass through normally; responses are cached in an **IndexedDB** store
+3. Offline: GET requests read from the cache; POST/PUT/DELETE requests are queued in IndexedDB
+4. On reconnect, the Service Worker uses the **Background Sync API** to replay queued mutations
+5. PocketBase **realtime SSE** auto-reconnects; the SW re-subscribes on the `online` event
+
+**Pros:** ✅ Preserves PocketBase realtime when online | ✅ Zero backend changes | ✅ SW survives tab close
+**Cons:** ❌ Requires client-side JS (not available in all Wails webviews) | ❌ Conflict resolution is LWW only
+
+### Alternative: Loro CRDT as sync layer (like the whiteboard)
+
+For features that need **conflict-free offline editing** (not just offline queuing), use the same Loro CRDT architecture the whiteboard uses:
+
+1. Store the feature's data as a Loro document (JSON-like map/list)
+2. Persist Loro snapshots to PocketBase (already implemented in `persist_pb.go`)
+3. Use SSE Hub (in-process) + NATS (cross-instance) for realtime sync
+4. Loro CRDT handles merge conflicts automatically
+
+**Pros:** ✅ True offline-first (edit anywhere, merge automatically) | ✅ CRDT convergence
+**Cons:** ❌ Loses PocketBase realtime for record-level events | ❌ Data not directly queryable via PocketBase REST API
+
+### Decision: When to use each
+
+| Scenario | Strategy | Why |
+|----------|----------|-----|
+| Simple CRUD (todo, forms) | SW + Background Sync | PB realtime works; LWW is fine for single-owner data |
+| Collaborative editing (whiteboard, docs) | Loro CRDT | Conflict-free merge is essential for multi-user |
+| Read-heavy, write-rare (catalog, settings) | SW cache-only | No offline writes needed; stale-while-revalidate is fine |
+
+The **whiteboard already uses Loro CRDT**. For the **todo feature**, SW + Background Sync is the recommended path if offline support is needed — it's the KISS option that preserves PocketBase realtime. The actual implementation is left as future work (the outbox is IndexedDB-ready via the whiteboard.js pattern).
+
+---
 
 ### The three async layers — how they compose
 
@@ -110,13 +165,17 @@ main.go
   │       ├─ static files         🔴 Core
   │       ├─ auth.RegisterAuth    🟢/🔴 Plugin UI + Core middleware
   │       ├─ todo routes          🟢 Plugin
+  │       │   └─ CrudPublisher (if cfg.OfflineSync.Enabled && js != nil)
   │       ├─ registerOnboarding   🟢 Plugin
-  │       ├─ registerWhiteboard   🟢 Plugin (creates DocStore)
-  │       └─ registerCollabSync   🟢 Plugin (NATS listener)
+  │       ├─ registerWhiteboard   🟢 Plugin (creates DocStore, separate SSEHub)
+  │       ├─ registerCollabSync   🟢 Plugin (NATS listener)
+  │       └─ registerCrudConsumer 🟢 Plugin (if cfg.OfflineSync.Enabled)
   ├─ startDagNats(cfg, pb, ...) ← 🟢 Plugin: boots engine (NATS on :4222)
   ├─ startNATS(cfg)             ← 🟡 Infra: connects or starts embedded NATS
   └─ pb.Start()                 ← 🔴 Core: serves HTTP
 ```
+
+> **OfflineSync toggle.** The entire offline sync stack is gated by `cfg.OfflineSync.Enabled`. When `false`: CrudPublisher is nil (handler's publishCrudOp is a no-op), registerCrudConsumer is skipped, and no NATS CRUD stream is created. Set `OFFLINE_SYNC_ENABLED=false` in production for an always-online deployment with zero overhead.
 
 > **Note on startup order:** `server.Run(cfg, nil)` is called BEFORE `startDagNats` and `startNATS`. This means `js` (the JetStream context) is always `nil` when `router.Init` runs. As a result, `newTodoBroadcaster(nil, hub)` always falls back to `InMemoryBroadcaster`. The whiteboard bypasses this limitation by publishing to NATS directly via `WebSyncWorker.nc.Publish()`. If you need NATS-backed todo broadcasting, pass the JetStream context through `server.Run(cfg, js)` instead of `nil`.
 

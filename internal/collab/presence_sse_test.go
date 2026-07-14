@@ -2,7 +2,6 @@ package collab
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -39,8 +38,7 @@ func TestPresence_SSEBridgeE2E(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/collab/presence/sse-doc", nil)
 	if err != nil {
 		t.Fatalf("request: %v", err)

@@ -1,3 +1,4 @@
+// SCOPE:core - DO NOT REMOVE - PocketBase initialization + SQLite driver.
 package db
 
 import (

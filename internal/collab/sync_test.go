@@ -1,7 +1,6 @@
 package collab
 
 import (
-	"context"
 	"sync"
 	"testing"
 	"time"
@@ -60,8 +59,7 @@ func TestCollab_SyncWorkerPersists(t *testing.T) {
 	fp := &fakePersister{snapshots: make(map[string][]byte)}
 	docs := NewDocStore()
 	worker := NewSyncWorker(nc, fp, docs)
-	workerCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	workerCtx := t.Context()
 	go func() { _ = worker.Run(workerCtx) }()
 
 	// Simulate the desktop edge: create a Loro doc, make a change,

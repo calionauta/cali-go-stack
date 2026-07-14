@@ -109,8 +109,8 @@ func buildFixtureDagNats(t *testing.T) (
 		return ctx.Complete([]byte(`"welcomed"`))
 	})
 	shim.Handle("onboarding-await-first-todo", func(ctx worker.TaskContext) error {
-		if _, err := ctx.WaitForSignal("first-todo", 50*time.Minute); err != nil {
-			return ctx.Fail(err)
+		if _, waitErr := ctx.WaitForSignal("first-todo", 50*time.Minute); waitErr != nil {
+			return ctx.Fail(waitErr)
 		}
 		return ctx.Complete([]byte(`"resumed"`))
 	})
@@ -124,8 +124,8 @@ func buildFixtureDagNats(t *testing.T) (
 	go func() { runErr <- srv.Run() }()
 	t.Cleanup(func() {
 		srv.Stop()
-		if err := <-runErr; err != nil {
-			t.Logf("dagnats test server stopped: %v", err)
+		if runErrVal := <-runErr; runErrVal != nil {
+			t.Logf("dagnats test server stopped: %v", runErrVal)
 		}
 	})
 	waitForDagNatsReady(t, e2eDagNatsHTTP)
@@ -165,7 +165,7 @@ func waitForDagNatsReady(t *testing.T, addr string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	url := "http://" + addr + "/ready"
-	for i := 0; i < 120; i++ {
+	for range 120 {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			t.Fatalf("ready request: %v", err)

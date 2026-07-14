@@ -1,3 +1,4 @@
+// SCOPE:core - DO NOT REMOVE - Auth route registration (/login, /logout, cookie middleware).
 package auth
 
 import (

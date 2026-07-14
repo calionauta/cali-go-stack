@@ -38,8 +38,14 @@ func TestCrossSessionCreatePropagates(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	jarA, _ := cookiejar.New(nil)
-	jarB, _ := cookiejar.New(nil)
+	jarA, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jarB, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	clientA := &http.Client{Jar: jarA, Timeout: 30 * time.Second}
 	clientB := &http.Client{Jar: jarB, Timeout: 30 * time.Second}
 	loginUser(ctx, t, clientA, base, demoEmail, demoPassword)
@@ -49,7 +55,11 @@ func TestCrossSessionCreatePropagates(t *testing.T) {
 	// PocketBase assigns its own clientId and echoes it in PB_CONNECT —
 	// that is the id the subscribe call must use (the URL clientId is
 	// ignored), mirroring the browser's subscribe(msg.clientId).
-	req, _ := http.NewRequestWithContext(ctx, "GET", base+"/api/realtime?clientId=cross-session-sub", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		base+"/api/realtime?clientId=cross-session-sub", nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
 	resp, err := clientB.Do(req)
 	if err != nil {
 		t.Fatalf("open realtime SSE: %v", err)
@@ -89,7 +99,12 @@ func TestCrossSessionCreatePropagates(t *testing.T) {
 		"action":        "subscribe",
 		"subscriptions": []string{"todos"},
 	})
-	if subResp, e := clientB.Post(base+"/api/realtime", "application/json", bytes.NewReader(subBody)); e != nil {
+	subReq, subReqErr := http.NewRequestWithContext(ctx, http.MethodPost, base+"/api/realtime", bytes.NewReader(subBody))
+	if subReqErr != nil {
+		t.Fatalf("subscribe request: %v", subReqErr)
+	}
+	subReq.Header.Set("Content-Type", "application/json")
+	if subResp, e := clientB.Do(subReq); e != nil {
 		t.Fatalf("subscribe: %v", e)
 	} else {
 		subResp.Body.Close()
@@ -103,16 +118,17 @@ func TestCrossSessionCreatePropagates(t *testing.T) {
 	createResp.Body.Close()
 
 	// Tab B must receive the `create` event carrying the new record.
-	transcript := ""
+	var transcript strings.Builder
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) && scanner.Scan() {
 		line := scanner.Text()
-		transcript += line + "\n"
+		transcript.WriteString(line + "\n")
 		if strings.Contains(line, `"action":"create"`) && strings.Contains(line, "PropagateMe") {
 			return
 		}
 	}
-	t.Fatalf("cross-session create event not delivered to subscriber; transcript tail:\n%s", tailString(transcript, 800))
+	t.Fatalf("cross-session create event not delivered; transcript tail:\n%s",
+		tailString(transcript.String(), 800))
 }
 
 // TestCrossSessionFragmentScoped guards the app-side half of the same bug:
@@ -127,8 +143,14 @@ func TestCrossSessionFragmentScoped(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	jarA, _ := cookiejar.New(nil)
-	jarB, _ := cookiejar.New(nil)
+	jarA, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jarB, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	clientA := &http.Client{Jar: jarA, Timeout: 15 * time.Second}
 	clientB := &http.Client{Jar: jarB, Timeout: 15 * time.Second}
 	loginUser(ctx, t, clientA, base, demoEmail, demoPassword)
@@ -140,7 +162,11 @@ func TestCrossSessionFragmentScoped(t *testing.T) {
 	}
 	createResp.Body.Close()
 
-	fragResp, err := clientB.Get(base + "/api/todos/fragment")
+	fragReq, fragReqErr := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/todos/fragment", nil)
+	if fragReqErr != nil {
+		t.Fatalf("fragment request: %v", fragReqErr)
+	}
+	fragResp, err := clientB.Do(fragReq)
 	if err != nil {
 		t.Fatalf("fragment GET: %v", err)
 	}
@@ -166,7 +192,11 @@ func TestRealtimeResyncFragmentMorphHeaders(t *testing.T) {
 	client := &http.Client{Jar: jar, Timeout: 15 * time.Second}
 	loginUser(ctx, t, client, base, demoEmail, demoPassword)
 
-	resp, err := client.Get(base + "/api/todos/fragment")
+	todoFragReq, todoFragReqErr := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/todos/fragment", nil)
+	if todoFragReqErr != nil {
+		t.Fatalf("request: %v", todoFragReqErr)
+	}
+	resp, err := client.Do(todoFragReq)
 	if err != nil {
 		t.Fatalf("fragment GET: %v", err)
 	}
@@ -195,7 +225,11 @@ func TestRealtimeResyncWiringRendered(t *testing.T) {
 	client := &http.Client{Jar: jar, Timeout: 15 * time.Second}
 	loginUser(ctx, t, client, base, demoEmail, demoPassword)
 
-	resp, err := client.Get(base + "/")
+	indexReq, indexReqErr := http.NewRequestWithContext(ctx, http.MethodGet, base+"/", nil)
+	if indexReqErr != nil {
+		t.Fatalf("request: %v", indexReqErr)
+	}
+	resp, err := client.Do(indexReq)
 	if err != nil {
 		t.Fatalf("GET /: %v", err)
 	}
@@ -245,7 +279,11 @@ func TestRealtimeNoOrphanIIFE(t *testing.T) {
 	client := &http.Client{Jar: jar, Timeout: 15 * time.Second}
 	loginUser(ctx, t, client, base, demoEmail, demoPassword)
 
-	resp, err := client.Get(base + "/")
+	todosReq, todosReqErr := http.NewRequestWithContext(ctx, http.MethodGet, base+"/", nil)
+	if todosReqErr != nil {
+		t.Fatalf("request: %v", todosReqErr)
+	}
+	resp, err := client.Do(todosReq)
 	if err != nil {
 		t.Fatalf("GET /: %v", err)
 	}
@@ -288,7 +326,8 @@ func TestRealtimeNoOrphanIIFE(t *testing.T) {
 func bootLiveServer(t *testing.T) (string, func()) {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "gogogo_live")
-	build := exec.Command("go", "build", "-o", bin, "github.com/calionauta/gogogo-fullstack-template/cmd/web")
+	build := exec.CommandContext(context.Background(), "go", "build",
+		"-o", bin, "github.com/calionauta/gogogo-fullstack-template/cmd/web")
 	build.Stderr = os.Stderr
 	if out, err := build.Output(); err != nil {
 		t.Fatalf("build live binary: %v\n%s", err, out)
@@ -306,7 +345,7 @@ func bootLiveServer(t *testing.T) (string, func()) {
 		"DAGNATS_ENABLED=false",
 		"NATS_ENABLED=false",
 	}
-	proc := exec.Command(bin, "serve", "--http", "127.0.0.1:"+strconv.Itoa(port))
+	proc := exec.CommandContext(context.Background(), bin, "serve", "--http", "127.0.0.1:"+strconv.Itoa(port))
 	proc.Env = append(os.Environ(), env...)
 	proc.Stderr = os.Stderr
 	if err := proc.Start(); err != nil {
@@ -316,7 +355,11 @@ func bootLiveServer(t *testing.T) (string, func()) {
 	base := "http://127.0.0.1:" + strconv.Itoa(port)
 	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
-		resp, e := http.Get(base + "/health")
+		healthReq, healthReqErr := http.NewRequestWithContext(context.Background(), http.MethodGet, base+"/health", nil)
+		if healthReqErr != nil {
+			continue
+		}
+		resp, e := http.DefaultClient.Do(healthReq)
 		if e == nil {
 			resp.Body.Close()
 			if resp.StatusCode == 200 {

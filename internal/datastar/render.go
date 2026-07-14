@@ -1,3 +1,4 @@
+// SCOPE:core - DO NOT REMOVE - Datastar rendering helpers (RenderAndPatch, MergeSignals).
 package datastar
 
 import (

@@ -1,3 +1,4 @@
+// SCOPE:feature - REMOVE if not using the Todo MVC example.
 // Package handlers implements the HTTP and worker handlers for the todo
 // feature. The HTTP handlers are SSE-friendly: every mutation patches
 // signals or appends toast HTML to the client. The worker handler
@@ -38,9 +39,9 @@ const (
 )
 
 // SSE channel buffer size per client. Each buffered chunk is a few
-// hundred bytes (one Datastar event), so 64 gives ~30KB headroom per
-// slow client before backpressure kicks in.
-const sseClientBuffer = 64
+// hundred bytes (one Datastar event), so the default (64) gives ~30KB
+// headroom per slow client before backpressure kicks in. Defined in
+// config.DefaultClientQueueSize — change there to tune globally.
 
 // TodoBroadcaster publishes todo mutations so every connected client
 // receives them in real time. It is defined in the nats package (two
@@ -57,6 +58,7 @@ type TodoHandler struct {
 	q            *queue.Queue
 	cfg          *config.Config
 	broadcaster  TodoBroadcaster
+	crudPub      *nats.CrudPublisher // publishes CRUD ops to NATS for cross-instance sync
 	llm          *llm.Client
 	llmSimulated *llm.Client
 	// onboarding drives the event-driven onboarding flow. It is an
@@ -121,6 +123,25 @@ func (h *TodoHandler) simulatedLLMEnabled() bool {
 // default) to skip cross-client broadcasting of ephemeral signals too.
 func (h *TodoHandler) SetBroadcaster(b TodoBroadcaster) {
 	h.broadcaster = b
+}
+
+// SetCrudPublisher wires the NATS CRUD publisher for cross-instance sync.
+// When set, every todo CRUD operation is also published to JetStream
+// after being written to PocketBase, so other instances (or the server,
+// for desktop edges) converge. Pass nil (the default) to disable.
+func (h *TodoHandler) SetCrudPublisher(p *nats.CrudPublisher) {
+	h.crudPub = p
+}
+
+// publishCrudOp publishes a CRUD operation to NATS if the publisher is
+// configured. Called AFTER the handler writes to PocketBase, so failure
+// to publish does NOT affect the response. The operation data captures
+// the PocketBase-generated ID so the remote consumer reuses it.
+func (h *TodoHandler) publishCrudOp(op nats.CrudOpType, userID string, data *nats.CrudOpData) {
+	if h.crudPub == nil {
+		return
+	}
+	h.crudPub.Publish(op, userID, data)
 }
 
 // RegisterRoutes wires the HTTP routes on a PocketBase serve event.
@@ -263,6 +284,13 @@ const retryDemoInitialDelay = 1500 * time.Millisecond
 // the literal isn't duplicated across handlers (goconst).
 const jobTypeToast = "toast"
 
+// jobTypeSuggestResult is the queue.Job type for AI suggest results.
+const jobTypeSuggestResult = "suggest_result"
+
+// phaseError is the shared "error" phase string used by both the
+// onboarding stepper and the todo SSE dispatcher for error toasts.
+const phaseError = "error"
+
 func (h *TodoHandler) handleRetryDemoJob(ctx context.Context, hub *queue.SSEHub, _ queue.Job) error {
 	const maxAttempts = 3
 	attempt := 0
@@ -284,7 +312,7 @@ func (h *TodoHandler) handleRetryDemoJob(ctx context.Context, hub *queue.SSEHub,
 		retry.Context(ctx),
 	)
 	if err != nil {
-		hub.Broadcast(toastJob("Queue + retry demo failed", "error"))
+		hub.Broadcast(toastJob("Queue + retry demo failed", phaseError))
 		return err
 	}
 	hub.Broadcast(toastJob("Queue + retry OK — 3 attempts", "success"))

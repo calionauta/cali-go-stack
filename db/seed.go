@@ -1,3 +1,6 @@
+// SCOPE:core - DO NOT REMOVE - Collection creation and seed data.
+// SCOPE:feature - The 'todos' and 'whiteboards' collections are examples;
+// REMOVE collections your domain does not need, keeping only your own.
 package db
 
 import (

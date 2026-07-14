@@ -9,7 +9,6 @@
 // syncs its JetStream streams with the central server (NATS_LEAFNODE_URL)
 // — Phase B of the edge-sync design. Phase C (Loro CRDT collab) builds on
 // top of this transport.
-//
 package main
 
 import (
@@ -29,6 +28,7 @@ import (
 	"github.com/calionauta/gogogo-fullstack-template/internal/server"
 )
 
+//nolint:gocyclo // extracting NATS+Collab would add abstraction over single-use setup
 func main() {
 	cfg := config.Load()
 
@@ -96,7 +96,7 @@ func main() {
 					if x > 1 {
 						x = 0
 					}
-					_ = pres.PublishCursor(x, 0.5)
+					_ = pres.PublishCursor(x, 0.5) //nolint:mnd // 0.5 is center-Y for demo cursor
 				}
 			}
 		}()
@@ -121,6 +121,7 @@ func main() {
 	// (where PocketBase serves the UI) through this handler.
 	target, err := url.Parse(fmt.Sprintf("http://%s", addr))
 	if err != nil {
+		//nolint:gocritic // log.Fatalf is intentional — main() exits here.
 		log.Fatalf("parse target url: %v", err)
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)

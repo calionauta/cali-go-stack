@@ -14,6 +14,7 @@ import (
 	"github.com/calionauta/gogogo-fullstack-template/features/todo"
 	"github.com/calionauta/gogogo-fullstack-template/features/todo/components"
 	dshelpers "github.com/calionauta/gogogo-fullstack-template/internal/datastar"
+	"github.com/calionauta/gogogo-fullstack-template/internal/nats"
 )
 
 func (h *TodoHandler) handleList(c *core.RequestEvent) error {
@@ -153,6 +154,11 @@ func (h *TodoHandler) handleCreate(c *core.RequestEvent) error {
 		return c.String(statusInternal, "save failed")
 	}
 
+	// Publish to NATS for cross-instance sync (desktop→server).
+	h.publishCrudOp(nats.CrudOpCreate, ownerOf(c), &nats.CrudOpData{
+		ID: item.ID, Title: item.Title, Completed: item.Completed,
+	})
+
 	// Resume the event-driven onboarding flow if this user has a
 	// pending onboarding (set by OnboardingStart on login). The first
 	// todo they create moves the durable workflow to its second half
@@ -224,6 +230,11 @@ func (h *TodoHandler) handleToggle(c *core.RequestEvent) error {
 		slog.Error("todo: list after toggle failed", "error", err)
 		return c.String(statusInternal, "error listing todos")
 	}
+	// Publish to NATS for cross-instance sync.
+	h.publishCrudOp(nats.CrudOpToggle, ownerOf(c), &nats.CrudOpData{
+		ID: rec.Id, Completed: rec.GetBool("completed"),
+	})
+
 	sse := sdk.NewSSE(c.Response, c.Request)
 	// Record propagation is via PocketBase realtime (see handleCreate).
 	return h.patchTodoListWithSelfOrigin(sse, todos)
@@ -286,6 +297,9 @@ func (h *TodoHandler) handleDelete(c *core.RequestEvent) error {
 		slog.Error("todo: list after delete failed", "error", err)
 		return c.String(statusInternal, "error listing todos")
 	}
+	// Publish to NATS for cross-instance sync.
+	h.publishCrudOp(nats.CrudOpDelete, ownerOf(c), &nats.CrudOpData{ID: rec.Id})
+
 	sse := sdk.NewSSE(c.Response, c.Request)
 	// Close the confirmation modal on every client by clearing the
 	// two signals the <dialog> reads.
@@ -328,6 +342,9 @@ func (h *TodoHandler) handleClearCompleted(c *core.RequestEvent) error {
 		slog.Error("todo: list after clear failed", "error", err)
 		return c.String(statusInternal, "error listing todos")
 	}
+	// Publish to NATS for cross-instance sync.
+	h.publishCrudOp(nats.CrudOpClearCompleted, ownerOf(c), nil)
+
 	sse := sdk.NewSSE(c.Response, c.Request)
 	if err := h.patchTodoListWithSelfOrigin(sse, todos); err != nil {
 		return err

@@ -39,6 +39,8 @@ type WebShapesEvent struct {
 	Shapes []Shape `json:"shapes"`
 }
 
+// SCOPE:pluggable - REMOVE if not using CRDT collaboration (whiteboard depends on this).
+// WebSyncWorker is the SSE-only transport (works WITHOUT NATS).
 // WebSyncWorker is the unified transport for collaborative docs. It uses
 // the SSE hub for in-process fan-out (same as the todo feature) AND
 // publishes updates to NATS (subject app.sync.<docID>) so that other
@@ -113,7 +115,7 @@ func (w *WebSyncWorker) ApplyUpdate(docID, fromClientID string, update []byte) (
 		slog.Warn("collab: marshal update", "doc", docID, "error", err)
 		return len(snapshot), err
 	}
-	w.hub.Broadcast(payload)
+	w.hub.BroadcastExcept(payload, fromClientID)
 
 	// NATS broadcast (cross-instance): publish the raw Loro update so the
 	// SyncWorker on other instances (subscribed to app.sync.>) also
@@ -152,7 +154,7 @@ func (w *WebSyncWorker) ApplyOp(docID, fromClientID string, op ShapeOp) ([]Shape
 		slog.Warn("collab: marshal shapes", "doc", docID, "error", err)
 		return shapes, err
 	}
-	w.hub.Broadcast(payload)
+	w.hub.BroadcastExcept(payload, fromClientID)
 
 	// NATS broadcast: publish the raw Loro update so the SyncWorker on
 	// other instances converges this doc too.

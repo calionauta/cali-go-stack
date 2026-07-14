@@ -1,7 +1,6 @@
 package collab
 
 import (
-	"context"
 	"sync"
 	"testing"
 	"time"
@@ -38,8 +37,7 @@ func TestPresence_TwoPeersConverge(t *testing.T) {
 		aSeen = append(aSeen, m)
 		aMu.Unlock()
 	})
-	aCtx, aCancel := context.WithCancel(context.Background())
-	defer aCancel()
+	aCtx := t.Context()
 	go func() { _ = a.Subscribe(aCtx) }()
 
 	// Peer B.
@@ -51,8 +49,7 @@ func TestPresence_TwoPeersConverge(t *testing.T) {
 		bSeen = append(bSeen, m)
 		bMu.Unlock()
 	})
-	bCtx, bCancel := context.WithCancel(context.Background())
-	defer bCancel()
+	bCtx := t.Context()
 	go func() { _ = b.Subscribe(bCtx) }()
 
 	// Let both subscribe + exchange joins.

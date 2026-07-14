@@ -63,7 +63,7 @@ func startTestServer(t *testing.T, httpAddr, dataDir string) *Client {
 	client := NewClient("http://" + httpAddr)
 	// Register the workflow, retrying until the API is up. Under -race
 	// the engine boots slower, so allow up to ~20s.
-	for attempt := 0; attempt < 80; attempt++ {
+	for range 80 {
 		if err := client.RegisterWorkflow(context.Background(), []byte(OnboardingWorkflowJSON)); err == nil {
 			return client
 		}

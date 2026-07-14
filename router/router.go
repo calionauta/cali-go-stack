@@ -1,3 +1,4 @@
+// SCOPE:core - DO NOT REMOVE - Main server routing.
 package router
 
 import (
@@ -87,37 +88,77 @@ func Init(
 		// with every connected client. Uses NATS JetStream when available,
 		// falls back to in-memory SSE Hub fan-out. Built ONCE and shared
 		// across all handlers to avoid "already bound" consumer errors.
-		broadcaster := newTodoBroadcaster(js, q.Hub())
+		//
+		// The todo and whiteboard features use SEPARATE SSEHub instances
+		// so a broadcast from one never reaches the other's clients.
+		// This prevents wasted parsing (a whiteboard shape event reaching
+		// a todo stream, or a todo toast reaching a whiteboard stream)
+		// at negligible memory cost (two small maps instead of one).
+		// If you need only one feature, the unused hub is GC'd with its
+		// package — zero overhead.
+		todoHub := q.Hub() // queue's own hub — used by goqite workers + todo SSE
+		broadcaster := newTodoBroadcaster(js, todoHub)
 		if jsBroadcaster, ok := broadcaster.(interface{ Subscribe(*queue.SSEHub) }); ok {
-			jsBroadcaster.Subscribe(q.Hub())
+			jsBroadcaster.Subscribe(todoHub)
+		}
+		// Wire the NATS CRUD publisher for cross-instance sync. Only
+		// initialized when OfflineSync is enabled AND NATS JetStream is
+		// available (js is non-nil). When disabled, CrudPublisher is nil
+		// and the handler's publishCrudOp is a no-op — zero cost.
+		var crudPub *nats.CrudPublisher
+		if cfg.OfflineSync.Enabled {
+			crudPub = nats.NewCrudPublisher(js)
 		}
 		if todoH != nil {
 			todoH.SetBroadcaster(broadcaster)
+			todoH.SetCrudPublisher(crudPub)
 			todoH.RegisterRoutes(se)
 		} else {
 			// Defensive fallback: construct a fresh handler if the
 			// caller forgot to pass one.
 			fallback := handlers.New(app, q, cfg)
 			fallback.SetBroadcaster(broadcaster)
+			fallback.SetCrudPublisher(crudPub)
 			fallback.RegisterRoutes(se)
 		}
 		// Remove todos: delete this block + delete features/todo/ + delete db/pocketbase.go seed
 
 		// Onboarding: DagNats durable workflow (WelcomeOnboarding).
 		// Dependencies: DagNats running on :8090, TodoHandler, NATS broadcaster.
-		registerOnboarding(app, q, se, broadcaster, todoH, cfg.DagNats.HTTPAddr)
-		// Remove onboarding: delete this line + delete features/todo/handlers/onboarding.go + delete internal/dagnats/
+		// Guarded by DagNats.Enabled so the reverse-proxy routes aren't
+		// registered when DagNats is disabled (avoids zombie 502 routes).
+		if cfg.DagNats.Enabled {
+			registerOnboarding(app, q, se, broadcaster, todoH, cfg.DagNats.HTTPAddr)
+			// Remove onboarding: delete this block + delete features/todo/handlers/onboarding.go + delete internal/dagnats/
+		}
 
-		// Whiteboard: collaborative canvas (Loro CRDT + Rough.js + SSE hub + NATS sync).
-		// Dependencies: SSE Hub, PocketBase whiteboards collection, NATS sync worker.
+		// Whiteboard: collaborative canvas (Loro CRDT + Rough.js + SSE hub
+		// + NATS sync). Dependencies: SSE Hub, PocketBase whiteboards,
+		// NATS sync worker.
+		// Uses a SEPARATE SSEHub from the todo feature so shapes and presence
+		// events never reach todo clients (and vice-versa).
 		// Creates the shared DocStore used by both WebSyncWorker and SyncWorker.
-		docs := registerWhiteboard(se, q)
-		// Remove whiteboard: delete this line + delete features/whiteboard/ + delete internal/collab/ + delete web/resources/static/whiteboard.js
+		whiteboardHub := queue.NewSSEHub()
+		docs := registerWhiteboard(se, q, whiteboardHub)
+		// Remove whiteboard: delete this line + delete features/whiteboard/
+		// + delete internal/collab/
 
 		// Collab sync: subscribes app.sync.> on NATS, persists whiteboard docs.
 		// Uses the same DocStore as the whiteboard handler (shared convergence).
 		registerCollabSync(se, docs)
 		// Remove collab sync: delete this line + delete internal/collab/sync.go
+
+		// NATS CRUD consumer: subscribes app.crud.todo.> and writes todo
+		// operations to PocketBase. This is the server-side counterpart
+		// to the CrudPublisher: desktop edges publish CRUD ops to their
+		// local NATS; the Leaf Node replicates to the server; this
+		// consumer writes them to the server's PocketBase.
+		// Only started when OfflineSync is enabled AND NATS is available.
+		// No-op when either condition is false.
+		if cfg.OfflineSync.Enabled {
+			registerCrudConsumer(se, js, cfg.AppName)
+		}
+		// Remove crud consumer: delete this line + delete internal/nats/crudproxy.go
 
 		return se.Next()
 	})

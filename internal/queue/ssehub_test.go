@@ -6,15 +6,17 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/calionauta/gogogo-fullstack-template/config"
 )
 
 // TestNewSSEHub_DefaultReplaySize asserts the documented default
 // (64 slots) is the cap when no option overrides it.
 func TestNewSSEHub_DefaultReplaySize(t *testing.T) {
 	h := NewSSEHub()
-	if h.maxBuffer != DefaultReplayBufferSize {
+	if h.maxBuffer != config.DefaultReplayBufferSize {
 		t.Fatalf("default buffer = %d, want %d",
-			h.maxBuffer, DefaultReplayBufferSize)
+			h.maxBuffer, config.DefaultReplayBufferSize)
 	}
 }
 

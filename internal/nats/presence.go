@@ -2,6 +2,7 @@ package nats
 
 import (
 	"encoding/json"
+	"log/slog"
 	"time"
 )
 
@@ -18,13 +19,25 @@ func UserJoin(roomID string, info UserInfo) error {
 	if err != nil {
 		return err
 	}
-	data, _ := json.Marshal(info)
-	kv.Put("room."+roomID+".user."+info.ID, data)
+	data, err := json.Marshal(info)
+	if err != nil {
+		return err
+	}
+	key := "room." + roomID + ".user." + info.ID
+	if _, putErr := kv.Put(key, data); putErr != nil {
+		slog.Warn("nats/presence: kv.Put failed", "room", roomID, "user", info.ID, "error", putErr)
+	}
 
-	event, _ := json.Marshal(map[string]string{
+	event, err := json.Marshal(map[string]string{
 		"type": "join", "roomID": roomID, "userID": info.ID,
 	})
-	NC.Publish("presence."+roomID+".join", event)
+	if err != nil {
+		return err
+	}
+	subj := "presence." + roomID + ".join"
+	if err := NC.Publish(subj, event); err != nil {
+		slog.Warn("nats/presence: publish join failed", "room", roomID, "error", err)
+	}
 	return nil
 }
 
@@ -34,12 +47,19 @@ func UserLeave(roomID, userID string) error {
 	if err != nil {
 		return err
 	}
-	kv.Delete("room." + roomID + ".user." + userID)
+	if delErr := kv.Delete("room." + roomID + ".user." + userID); delErr != nil {
+		slog.Warn("nats/presence: kv.Delete failed", "room", roomID, "user", userID, "error", delErr)
+	}
 
-	event, _ := json.Marshal(map[string]string{
+	event, marshalErr := json.Marshal(map[string]string{
 		"type": "leave", "roomID": roomID, "userID": userID,
 	})
-	NC.Publish("presence."+roomID+".leave", event)
+	if marshalErr != nil {
+		return marshalErr
+	}
+	if pubErr := NC.Publish("presence."+roomID+".leave", event); pubErr != nil {
+		slog.Warn("nats/presence: publish leave failed", "room", roomID, "error", pubErr)
+	}
 	return nil
 }
 
@@ -53,7 +73,6 @@ func GetRoomUsers(roomID string) ([]UserInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	var users []UserInfo
 	for _, key := range keys {
 		entry, err := kv.Get(key)

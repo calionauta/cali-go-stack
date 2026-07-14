@@ -1,3 +1,4 @@
+// SCOPE:pluggable - REMOVE if not using CRDT sync via NATS.
 package router
 
 import (

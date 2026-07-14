@@ -1,12 +1,9 @@
-// Package collab wraps the Loro CRDT (github.com/aholstenson/loro-go) for
-// the template's collaborative features (whiteboard, shared docs). Loro
-// gives conflict-free offline merges: two edges editing the same doc
-// offline both converge when their updates meet, with no Last-Writer-Wins
-// data loss.
-//
-// This package is the local CRDT model. The TRANSPORT (how updates reach
-// the central server) is NATS Leaf Node (Phase B) — collab produces the
-// bytes, the SyncWorker (sync.go) publishes/applies them over JetStream.
+// SCOPE:pluggable - REMOVE if not using CRDT collaboration.
+// To remove: delete internal/collab/ + features/whiteboard/ + router/whiteboard.go + router/collab_jetstream.go.
+// Package collab wraps the Loro CRDT for collaborative features
+// (whiteboard, shared docs). This is the local CRDT model; transport
+// is NATS Leaf Node — collab produces bytes, the SyncWorker
+// publishes/applies them over JetStream.
 package collab
 
 import (

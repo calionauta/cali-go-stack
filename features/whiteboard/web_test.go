@@ -226,19 +226,16 @@ func (s *wbStream) drain(window time.Duration) []string {
 //
 //   - clientA draws a shape (POST op). The server merges it into the Loro
 //     CRDT, persists the snapshot, and broadcasts the resolved shapes to
-//     every OTHER client (exclude-origin).
+//     every OTHER client (BroadcastExcept, no echo to originator).
 //   - clientB (a different SSE connection, same doc) MUST receive the
 //     shapes event with the new shape.
-//   - clientA MUST receive the shapes broadcast too (the client draws
-//     optimistically and the server is authoritative, so re-broadcasting
-//     to everyone — including the originator — keeps every tab convergent
-//     and prevents the local tab from losing the shape it just drew, which
-//     is what the old exclude-origin behaviour caused).
-//   - clientB MUST receive the same shape broadcast.
+//   - clientA MUST NOT receive its own shape echoed back — it already has
+//     it optimistically in its local `shapes` array. This is the standard
+//     CRDT "no echo" pattern (Yjs, Liveblocks, tldraw).
 //   - The persister MUST hold the saved snapshot (PocketBase in prod).
 //
 // This proves the full architecture without a browser: SSE transport +
-// CRDT convergence + persistence + consistent broadcast to all peers.
+// CRDT convergence + persistence + no-echo broadcast to peers.
 func TestWhiteboard_ShapeBroadcastAndPersist(t *testing.T) {
 	baseURL, persister, cleanup := webFixture(t)
 	defer cleanup()
@@ -293,9 +290,9 @@ func TestWhiteboard_ShapeBroadcastAndPersist(t *testing.T) {
 	if !shapesEventContains(bEvents, "s1") {
 		t.Fatalf("PEER (clientB) did not receive the shape broadcast.\nB events:\n%s", debugEvents(bEvents))
 	}
-	if !shapesEventContains(aEvents, "s1") {
-		t.Fatalf("ORIGINATOR (clientA) did not receive the shapes broadcast "+
-			"(it draws optimistically and must converge on the authoritative shapes).\nA events:\n%s", debugEvents(aEvents))
+	if shapesEventContains(aEvents, "s1") {
+		t.Fatalf("ORIGINATOR (clientA) received its own shape echoed back "+
+			"(BroadcastExcept is broken — CRDT no-echo standard).\nA events:\n%s", debugEvents(aEvents))
 	}
 
 	// Persistence: the in-memory persister must hold the snapshot for docID.

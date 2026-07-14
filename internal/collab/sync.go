@@ -7,6 +7,9 @@ import (
 	natsio "github.com/nats-io/nats.go"
 )
 
+// SCOPE:pluggable - REMOVE if not using NATS.
+// SyncWorker is the NATS subscriber side. REQUIRES NATS.
+// If you keep only WebSyncWorker (SSE-only), the whiteboard works without NATS.
 // SyncWorker subscribes to collaborative doc updates on the NATS subject
 // app.sync.> and applies them to the shared DocStore (the same one the
 // WebSyncWorker uses), then persists the resolved snapshot via the

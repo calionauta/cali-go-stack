@@ -1,7 +1,6 @@
 package collab
 
 import (
-	"context"
 	"net/url"
 	"testing"
 	"time"
@@ -49,8 +48,7 @@ func TestCollab_LeafNodeE2E(t *testing.T) {
 	fp := &fakePersister{snapshots: make(map[string][]byte)}
 	docs := NewDocStore()
 	worker := NewSyncWorker(centralNC, fp, docs)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go func() { _ = worker.Run(ctx) }()
 
 	// 3) Leaf node server attached to the central leaf port.
@@ -82,7 +80,7 @@ func TestCollab_LeafNodeE2E(t *testing.T) {
 
 	// Wait for the leaf to attach to central.
 	attached := false
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		if central.NumLeafNodes() > 0 {
 			attached = true
 			break

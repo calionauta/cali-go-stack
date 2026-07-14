@@ -1,12 +1,60 @@
+// SCOPE:core - DO NOT REMOVE - Server configuration (env vars, secrets).
+//
+// ── Env vars (all optional, see Load() for defaults) ──
+//
+//	PORT                (default: 8080)          — HTTP listen port
+//	HOST                (default: "0.0.0.0")     — HTTP listen address
+//	ENVIRONMENT         (default: "development") — set to "production" for prod mode
+//	APP_NAME            (default: binary name)   — project name (secrets scope)
+//	LOG_LEVEL           (default: "INFO")
+//	DATABASE_PATH       (default: "data/app.db")
+//	DATA_DIR            (default: "data")
+//	ENCRYPTION_KEY      (default: "") — PocketBase encryption key
+//	ADMIN_UNLOCK_TOKEN  (default: "") — master password for admin endpoints
+//	GOAI_API_KEY        (default: "") — LLM provider API key
+//	GOAI_BASE_URL       (default: "https://api.openai.com/v1") // LLM base URL
+//	GOAI_MODEL          (default: "gpt-4o-mini")  — LLM model ID
+//	SIMULATE_LLM        (default: "true" in dev) — enable simulated LLM
+//	NATS_ENABLED        (default: true)  — enable NATS JetStream
+//	NATS_STORE_DIR      (default: "data/nats")
+//	NATS_LEAFNODE_URL   (default: "")    — connect as NATS Leaf Node
+//	DAGNATS_ENABLED     (default: true)  — enable DagNats workflows
+//	DAGNATS_HTTP_ADDR   (default: "127.0.0.1:8090")
+//	DAGNATS_NATS_PORT   (default: 4222)
+//	DAGNATS_STORE_DIR   (default: "data/dagnats")
+//	OFFLINE_SYNC_ENABLED (default: true) — toggle hybrid offline sync
+//
+// ── Runtime constants (tune in config.go, consumed across packages) ──
+//
+//	DefaultReplayBufferSize     (64)  — SSEHub per-client ring-buffer
+//	DefaultClientQueueSize      (64)  — SSEHub per-client channel buffer
+//	DefaultSSEHeartbeatInterval (15s) — SSE heartbeat ticker interval
 package config
 
 import (
 	"log"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/calionauta/gogogo-fullstack-template/internal/secrets"
 )
+
+// ── Runtime constants ──
+
+// DefaultReplayBufferSize is the per-client SSEHub ring-buffer length.
+// Sized for ~64KB of Datastar patch-signals at ~1KB each.
+const DefaultReplayBufferSize = 64
+
+// DefaultClientQueueSize is the per-client SSEHub channel buffer.
+// Both the todo and whiteboard SSE handlers use 64 slots — tune
+// this constant globally.
+const DefaultClientQueueSize = 64
+
+// DefaultSSEHeartbeatInterval is how often the SSE handler writes a
+// comment line (: heartbeat) to detect client disconnection. 15s is
+// the industry standard for SSE heartbeats.
+const DefaultSSEHeartbeatInterval = 15 * time.Second
 
 type Config struct {
 	// AppName is used as the scope for the secrets file
@@ -48,6 +96,21 @@ type Config struct {
 		HTTPAddr string // HTTP/API/console listen addr (separate port from the app)
 		NATSPort int    // NATS port the engine owns (default 4222; the realtime broadcaster connects here)
 		StoreDir string
+	}
+
+	// OfflineSync controls the hybrid offline-sync-online strategy.
+	// When enabled (default), the system works offline and syncs when
+	// online via Service Worker (web) + NATS CRUD proxy (desktop/edge).
+	// When disabled, all requests go directly to PocketBase with no
+	// offline caching or background sync — the simplest path for
+	// always-online deployments.
+	//
+	// Toggle via OFFLINE_SYNC_ENABLED=false in the environment.
+	// Default: true (opt-out). When disabled, no Service Worker is
+	// registered, no NATS CRUD stream is created, and no unnecessary
+	// code paths are traversed.
+	OfflineSync struct {
+		Enabled bool
 	}
 
 	GoAI GoAIConfig
@@ -108,6 +171,8 @@ func Load() *Config {
 	cfg.DagNats.HTTPAddr = getEnv("DAGNATS_HTTP_ADDR", "127.0.0.1:8090")
 	cfg.DagNats.NATSPort = envInt("DAGNATS_NATS_PORT", defaultDagNatsNATSPort)
 	cfg.DagNats.StoreDir = getEnv("DAGNATS_STORE_DIR", "data/dagnats")
+
+	cfg.OfflineSync.Enabled = envBool("OFFLINE_SYNC_ENABLED", true)
 
 	return cfg
 }

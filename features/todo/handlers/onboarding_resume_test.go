@@ -110,7 +110,11 @@ func waitForDagNatsReady(t *testing.T, httpAddr string) {
 	client := &http.Client{Timeout: 500 * time.Millisecond}
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		resp, err := client.Get("http://" + httpAddr + "/ready")
+		req, reqErr := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://"+httpAddr+"/ready", nil)
+		if reqErr != nil {
+			t.Fatalf("ready request: %v", reqErr)
+		}
+		resp, err := client.Do(req)
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
@@ -124,7 +128,7 @@ func waitForDagNatsReady(t *testing.T, httpAddr string) {
 
 func registerOnboardingWorkflow(t *testing.T, client *dagnats.Client) {
 	t.Helper()
-	for attempt := 0; attempt < 80; attempt++ {
+	for range 80 {
 		if err := client.RegisterWorkflow(context.Background(), []byte(dagnats.OnboardingWorkflowJSON)); err == nil {
 			return
 		}

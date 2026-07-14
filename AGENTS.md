@@ -39,17 +39,39 @@ Skills: `cali-coding-go-standards` (code quality), `cali-code-navigation` (cymba
 - NO Datastar `PatchElements` whose top-level element lacks `id` + `WithSelector` (client throws `PatchElementsNoTargetsFound`). Use `internal/datastar.RenderAndPatch` paired with a selector.
 - NO real LLM in tests — inject a stub (`internal/llm/fakeserver` only inside `internal/llm/`).
 
+## SCOPE annotations (read before editing)
+
+Every source file carries a `SCOPE` comment at the top showing its removal risk.
+
+| Annotation | Meaning | You would… |
+|------------|---------|------------|
+| `SCOPE:core` 🔴 | Binary does not work without it. | Customize, never remove. |
+| `SCOPE:pluggable` 🟡 | Binary works but loses capability. Has removal instructions. | Swap or delete with wiring call. |
+| `SCOPE:feature` 🟢 | A demo/add-on. Has removal instructions and dependency notes. | Delete package + wiring call. |
+
+**Agent rule:** When the user asks to trim the project, never delete a `SCOPE:core` file — always ask first. Delete `SCOPE:feature` and `SCOPE:pluggable` files freely, following their "Remove by" comments.
+
 ## Architecture (concise)
 
 ```
-cmd/web/        Entry point (PB + goqite + SSE Hub + DagNats + NATS)
-config/         Env config
-db/             PocketBase + collection seeds
-internal/       {secrets,queue,nats,dagnats,llm,datastar,collab}
-features/app/   AppContext (cross-cutting deps bundle)
-features/todo/  Todo MVC (Datastar + DaisyUI + PB + SSE Hub + DagNats onboarding)
-features/whiteboard/  Loro CRDT + Rough.js canvas + SSEHub + NATS sync
-web/resources/  Embedded static assets
+cmd/web/                 🔴 CORE  Entry point (PB + goqite + SSE Hub + DagNats + NATS)
+config/                  🔴 CORE  Env config
+db/                      🔴 CORE  PocketBase + collection seeds
+internal/
+  secrets/               🔴 CORE  age-decrypted env loader
+  queue/                 🔴 CORE  goqite + SSE Hub + workers + retry + handler registry
+  datastar/              🟡 PLUGGABLE  Datastar rendering helpers
+  nats/                  🟡 PLUGGABLE  NATS JetStream + embedded server
+  dagnats/               🟡 PLUGGABLE  DagNats durable workflow client
+  llm/                   🟡 PLUGGABLE  GoAI LLM client
+  collab/                🟡 PLUGGABLE  Loro CRDT + DocStore + sync workers
+features/
+  auth/                  🔴/🟢 CORE (middleware) / FEATURE (UI)
+  app/                   🔴 CORE  AppContext (cross-cutting deps bundle)
+  todo/                  🟢 FEATURE  Todo MVC example (keep as reference, remove when done)
+  whiteboard/            🟢 FEATURE  Collaborative canvas (remove if not needed)
+web/resources/           🔴 CORE  Embedded static assets
+router/                  🔴 CORE  Route wiring
 ```
 
 **Three complementary async layers:** `goqite` (jobs+SSE) · `dagnats` (durable workflows) · `JetStream` (cross-instance realtime). They coexist in the same binary; all three are always compiled.
@@ -94,6 +116,50 @@ Push-to-`master` triggers `.github/workflows/deploy.yml` (Tailscale OIDC + Docke
 ## DaisyUI
 
 ALL HTML UI uses DaisyUI components (read https://daisyui.com/llms.txt). Load `/static/app.min.css` (built by `npm run build`, regenerated in Dockerfile). NEVER `daisyui.min.css` (v4 relic, breaks v5 markup).
+
+## Key config constants (single source of truth)
+
+| Constant | File | Default | Purpose |
+|----------|------|---------|---------|
+| `DefaultReplayBufferSize` | `config/config.go` | 64 | Per-client replay ring-buffer length |
+| `DefaultClientQueueSize` | `config/config.go` | 64 | Per-client SSE channel buffer |
+| `DefaultSSEHeartbeatInterval` | `config/config.go` | 15s | SSE heartbeat to detect disconnection |
+| `OfflineSync.Enabled` | `config/config.go` | `true` (opt-out: `OFFLINE_SYNC_ENABLED=false`) | Toggle hybrid offline sync |
+
+**One place for all configs:** `config/config.go`. Runtime constants that are package-specific (e.g. `DefaultBaseURL` in `internal/llm/goai.go`) stay cohesionated — but all env vars are documented in config.go's comment block.
+
+## Removing features & tests by SCOPE
+
+When you remove a feature or pluggable component, tests come along naturally:
+
+| If you remove… | Delete these packages | These test files go with them automatically |
+|----------------|----------------------|----------------------------------------------|
+| **Todo** (feature) | `features/todo/` | `features/todo/*_test.go` ✅ |
+| **Whiteboard** (feature) | `features/whiteboard/` (including its `static/` subdir), `internal/collab/` | `features/whiteboard/*_test.go`, `internal/collab/*_test.go` ✅ |
+| **DagNats** (pluggable) | `internal/dagnats/`, `router/onboarding_dagnats.go` | `internal/dagnats/*_test.go`, `features/todo/onboarding_e2e_test.go` ⚠️ check cross-package deps |
+| **NATS** (pluggable) | `internal/nats/` | `internal/nats/*_test.go`, `internal/collab/*_test.go` ⚠️ collab may depend on NATS |
+| **OfflineSync** (opt-out) | `config/config.go` (+ `sw.js`) | `internal/nats/crudproxy_test.go` ✅ (covers create/toggle/delete/clear_completed e2e with JetStream). Remove `sw.js` + SW registration from templ files + delete crudproxy.go |
+| **LLM** (pluggable) | `internal/llm/` | `internal/llm/*_test.go`, `features/todo/suggest_test.go` ⚠️ |
+
+**Rule of thumb:** `go test ./...` after deleting a package. If a compilation error mentions the deleted package in a test file, delete that test file too. Cross-package tests (like `features/todo/onboarding_e2e_test.go` depending on `internal/dagnats`) will fail to compile — that's your checklist.
+
+## Desktop builds
+
+```bash
+# One-time: install Wails v3 CLI
+# go install github.com/wailsapp/wails/v3/cmd/wails@latest
+
+# Build for current platform
+./scripts/desktop-build.sh
+
+# Build Android APK (requires SDK + NDK + JDK 21)
+./scripts/desktop-build.sh android
+
+# Build macOS .app bundle
+./scripts/desktop-build.sh package
+```
+
+The desktop binary shares 100% of the backend. With `NATS_LEAFNODE_URL` set, it becomes a NATS Leaf Node syncing JetStream with the server (offline edits replay on reconnect). See `scripts/desktop-build.sh` for full docs.
 
 ## Testing
 

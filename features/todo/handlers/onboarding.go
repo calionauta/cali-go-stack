@@ -76,20 +76,21 @@ func (h *OnboardingHandler) ResumeOnboarding(_ string) {
 		slog.Debug("onboarding: resume called but no active run")
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), onbSignalTimeout)
 	defer cancel()
 	if err := h.client.Signal(ctx, runID, "first-todo", []byte(`{"resumed":true}`)); err != nil {
 		slog.Warn("onboarding: signal first-todo failed", "run", runID, "error", err)
 		if h.broadcaster != nil {
-			_ = h.broadcaster.PublishTodoUpdate(ctx, todoUpdateJob("workflow-error", "remote", "", "resume failed: "+err.Error(), false))
+			_ = h.broadcaster.PublishTodoUpdate(ctx,
+				todoUpdateJob("workflow-error", "remote", "", "resume failed: "+err.Error(), false))
 		}
 		return
 	}
 	slog.Info("onboarding: signalled first-todo", "run", runID)
-	// Surface to the UI that creating the todo resumed the durable run,
-	// so the user understands the event-driven link (step 2 → step 3).
 	if h.broadcaster != nil {
-		_ = h.broadcaster.PublishTodoUpdate(ctx, todoUpdateJob("workflow-resumed", "remote", "", "First todo captured — workflow resuming", false))
+		_ = h.broadcaster.PublishTodoUpdate(ctx,
+			todoUpdateJob("workflow-resumed", "remote", "",
+				"First todo captured — workflow resuming", false))
 	}
 }
 
@@ -167,14 +168,41 @@ func (h *OnboardingHandler) handleStart(c *core.RequestEvent) error {
 // per-step status (from GetRunRaw) to a current-step number so the UI
 // advances even while DagNats reports the run's OVERALL status as
 // "running" (not "waiting") during the WaitForSignal await step.
+
+// Onboarding phase strings extracted as constants to avoid repeating
+// string literals across pollRun, onboardingCurrentStep, and
+// onboardingFailedStep (goconst).
+const (
+	onbPhaseGreet        = "greet"
+	onbPhaseWorkflow     = "workflow"
+	onbPhaseFinalize     = "finalize"
+	onbPhaseError        = "error"
+	onbStatusCompleted   = "completed"
+	onbStatusFailed      = "failed"
+	onbDetailGreet       = "Greeting user"
+	onbDetailWaitForTodo = "Waiting for your next to-do (create one to continue)"
+	onbDetailFinalize    = "Finalizing onboarding"
+
+	// onbSignalTimeout is the context deadline for signalling the
+	// blocked WaitForSignal step in ResumeOnboarding.
+	onbSignalTimeout = 5 * time.Second
+
+	// onbPollTimeout is the hard ceiling for pollRun's polling loop.
+	onbPollTimeout = 5 * time.Minute
+
+	// onbPollInterval is the tick interval for pollRun.
+	onbPollInterval = 700 * time.Millisecond
+)
+
 var onboardingStepOrder = []string{
 	"greet", "await-first-todo", "todo-1", "todo-2", "todo-3", "finalize",
 }
 
+//nolint:gocyclo // extracting the completed catch-up loop would add abstraction over single-use sim
 func (h *OnboardingHandler) pollRun(runID string) {
 	ctx := context.Background()
-	timeout := time.After(5 * time.Minute)
-	ticker := time.NewTicker(700 * time.Millisecond)
+	timeout := time.After(onbPollTimeout)
+	ticker := time.NewTicker(onbPollInterval)
 	defer ticker.Stop()
 	total := len(onboardingStepOrder)
 
@@ -207,43 +235,40 @@ func (h *OnboardingHandler) pollRun(runID string) {
 		steps, _ := raw["steps"].(map[string]any)
 
 		switch overall {
-		case "completed":
-			// Publish any intermediate steps that were missed due to fast
-			// execution (e.g. the user added a todo and the workflow ran
-			// through steps 3-5 before the next poll tick). This ensures
-			// the stepper and toasts show the full progression even when
-			// the polling interval is coarser than the workflow speed.
+		case onbStatusCompleted:
 			for s := lastStep + 1; s < total; s++ {
 				var phase, detail string
+				//nolint:mnd // step numbers 1-6 are structural, not magic
 				switch s {
 				case 1:
-					phase = "greet"
-					detail = "Greeting user"
+					phase = onbPhaseGreet
+					detail = onbDetailGreet
 				case 2:
-					phase = "workflow"
-					detail = "Waiting for your next to-do (create one to continue)"
-				case 3, 4, 5:
-					phase = "workflow"
+					phase = onbPhaseWorkflow
+					detail = onbDetailWaitForTodo
+				case 3, 4:
+					phase = onbPhaseWorkflow
+					detail = fmt.Sprintf("Creating example todo %d/3", s-2)
+				case 5:
+					phase = onbPhaseWorkflow
 					detail = fmt.Sprintf("Creating example todo %d/3", s-2)
 				default:
-					phase = "finalize"
-					detail = "Finalizing onboarding"
+					phase = onbPhaseFinalize
+					detail = onbDetailFinalize
 				}
 				h.publishProgress(ctx, s, total, phase,
 					fmt.Sprintf("Step %d/%d — %s", s, total, detail))
 			}
-			// Terminal — always publish (fires once on transition).
-			h.publishProgress(ctx, total, total, "finalize",
+			h.publishProgress(ctx, total, total, onbPhaseFinalize,
 				fmt.Sprintf("Step %d/%d — Onboarding complete", total, total))
 			if h.broadcaster != nil {
 				_ = h.broadcaster.PublishTodoUpdate(ctx,
 					todoUpdateJob("workflow-completed", "remote", "", "", false))
 			}
 			return
-		case "failed":
-			// Terminal — always publish (fires once on transition).
+		case onbStatusFailed:
 			cur, detail := onboardingFailedStep(steps)
-			h.publishProgress(ctx, cur, total, "error",
+			h.publishProgress(ctx, cur, total, onbPhaseError,
 				fmt.Sprintf("Onboarding failed: %s", detail))
 			if h.broadcaster != nil {
 				_ = h.broadcaster.PublishTodoUpdate(ctx,
@@ -278,23 +303,24 @@ func onboardingCurrentStep(steps map[string]any) (int, string, string) {
 		switch status {
 		case "running":
 			cur := i + 1
+			//nolint:mnd // step numbers 1-6 are structural, not magic
 			switch cur {
 			case 1:
-				return cur, "greet", "Greeting user"
+				return cur, onbPhaseGreet, onbDetailGreet
 			case 2:
-				return cur, "workflow", "Waiting for your next to-do (create one to continue)"
+				return cur, onbPhaseWorkflow, onbDetailWaitForTodo
 			case 3, 4, 5:
-				return cur, "workflow", fmt.Sprintf("Creating example todo %d/3", cur-2)
+				return cur, onbPhaseWorkflow, fmt.Sprintf("Creating example todo %d/3", cur-2)
 			default:
-				return cur, "finalize", "Finalizing onboarding"
+				return cur, onbPhaseFinalize, onbDetailFinalize
 			}
-		case "failed":
+		case onbStatusFailed:
 			cur := i + 1
 			detail := ""
 			if d, ok := st["detail"].(string); ok {
 				detail = d
 			}
-			return cur, "error", detail
+			return cur, onbPhaseError, detail
 		}
 	}
 	return 1, "greet", "Greeting user"
@@ -306,7 +332,7 @@ func onboardingFailedStep(steps map[string]any) (int, string) {
 	for i, id := range onboardingStepOrder {
 		st, _ := steps[id].(map[string]any)
 		status, _ := st["status"].(string)
-		if status == "failed" {
+		if status == onbStatusFailed {
 			detail := ""
 			if d, ok := st["detail"].(string); ok {
 				detail = d

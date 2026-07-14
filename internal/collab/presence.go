@@ -38,8 +38,8 @@ func PresenceSSEHandler(nc *natsio.Conn) http.HandlerFunc {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		// Send headers immediately so the client's request returns and the
-		// stream opens; an SSE comment also primes some proxies.
+		// Send headers immediately so the request returns and the stream
+		// opens; an SSE comment also primes some proxies.
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, ": connected\n\n")
 		flusher.Flush()
@@ -57,7 +57,7 @@ func PresenceSSEHandler(nc *natsio.Conn) http.HandlerFunc {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		defer sub.Unsubscribe()
+		defer func() { _ = sub.Unsubscribe() }()
 		<-ctx.Done()
 	}
 }
@@ -92,7 +92,7 @@ func NewPresence(nc *natsio.Conn, docID, user string, hb, ttl time.Duration) *Pr
 		hb:        hb,
 		ttl:       ttl,
 		roster:    make(map[string]PresenceMsg),
-		heartbeat: PresenceMsg{Type: "join", Doc: docID, User: user, TS: time.Now().UnixMilli()},
+		heartbeat: PresenceMsg{Type: presenceJoin, Doc: docID, User: user, TS: time.Now().UnixMilli()},
 	}
 }
 
@@ -107,7 +107,10 @@ func (p *Presence) OnChange(fn func(PresenceMsg)) {
 // PublishCursor broadcasts the local user's cursor position (normalized
 // 0..1). It also refreshes the local roster entry.
 func (p *Presence) PublishCursor(x, y float64) error {
-	msg := PresenceMsg{Type: "cursor", Doc: p.heartbeat.Doc, User: p.heartbeat.User, X: x, Y: y, TS: time.Now().UnixMilli()}
+	msg := PresenceMsg{
+		Type: presenceCursor, Doc: p.heartbeat.Doc, User: p.heartbeat.User,
+		X: x, Y: y, TS: time.Now().UnixMilli(),
+	}
 	p.mu.Lock()
 	p.roster[msg.User] = msg
 	p.mu.Unlock()
@@ -138,7 +141,10 @@ func (p *Presence) Subscribe(ctx context.Context) error {
 	defer beat.Stop()
 	defer func() {
 		// Best-effort leave on shutdown.
-		_ = p.publish(PresenceMsg{Type: "leave", Doc: p.heartbeat.Doc, User: p.heartbeat.User, TS: time.Now().UnixMilli()})
+		_ = p.publish(PresenceMsg{
+			Type: presenceLeave, Doc: p.heartbeat.Doc, User: p.heartbeat.User,
+			TS: time.Now().UnixMilli(),
+		})
 		_ = sub.Unsubscribe()
 	}()
 
@@ -148,7 +154,10 @@ func (p *Presence) Subscribe(ctx context.Context) error {
 			return nil
 		case <-beat.C:
 			// Re-affirm join so peers don't expire us during idle presence.
-			_ = p.publish(PresenceMsg{Type: "join", Doc: p.heartbeat.Doc, User: p.heartbeat.User, TS: time.Now().UnixMilli()})
+			_ = p.publish(PresenceMsg{
+				Type: presenceJoin, Doc: p.heartbeat.Doc, User: p.heartbeat.User,
+				TS: time.Now().UnixMilli(),
+			})
 		case <-expire.C:
 			p.expireStale()
 		}
@@ -159,9 +168,9 @@ func (p *Presence) Subscribe(ctx context.Context) error {
 func (p *Presence) apply(msg PresenceMsg) {
 	p.mu.Lock()
 	switch msg.Type {
-	case "leave":
+	case presenceLeave:
 		delete(p.roster, msg.User)
-	case "cursor", "join":
+	case presenceCursor, presenceJoin:
 		p.roster[msg.User] = msg
 	}
 	handlers := append([]func(PresenceMsg){}, p.handlers...)
@@ -182,7 +191,7 @@ func (p *Presence) expireStale() {
 		}
 		if now-m.TS > p.ttl.Milliseconds() {
 			delete(p.roster, u)
-			expired = append(expired, PresenceMsg{Type: "leave", Doc: p.heartbeat.Doc, User: u, TS: now})
+			expired = append(expired, PresenceMsg{Type: presenceLeave, Doc: p.heartbeat.Doc, User: u, TS: now})
 		}
 	}
 	handlers := append([]func(PresenceMsg){}, p.handlers...)

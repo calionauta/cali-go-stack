@@ -12,6 +12,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	sdk "github.com/starfederation/datastar-go/datastar"
 
+	"github.com/calionauta/gogogo-fullstack-template/config"
 	"github.com/calionauta/gogogo-fullstack-template/features/auth"
 	"github.com/calionauta/gogogo-fullstack-template/features/todo"
 	"github.com/calionauta/gogogo-fullstack-template/features/todo/components"
@@ -19,6 +20,7 @@ import (
 	"github.com/calionauta/gogogo-fullstack-template/internal/queue"
 )
 
+//nolint:gocyclo // SSE lifecycle is inherently sequential.
 func (h *TodoHandler) handleSSEStream(c *core.RequestEvent) error {
 	// The global auth middleware skips /api/* paths (PocketBase owns
 	// those), so c.Auth is nil here by default. Load the app session
@@ -36,9 +38,11 @@ func (h *TodoHandler) handleSSEStream(c *core.RequestEvent) error {
 	}
 
 	sse := sdk.NewSSE(c.Response, c.Request)
-	ch := make(chan []byte, sseClientBuffer)
+	ch := make(chan []byte, config.DefaultClientQueueSize)
 	h.q.Hub().Register(clientID, ownerOf(c), ch)
-	slog.Info("todo: sse registered", "clientID", clientID, "userID", ownerOf(c), "total_users", h.q.Hub().CountUserClients())
+	slog.Info("todo: sse registered",
+		"clientID", clientID, "userID", ownerOf(c), "total_users",
+		h.q.Hub().CountUserClients())
 	defer func() {
 		// Use UnregisterIfCurrent to prevent a stale deferred cleanup from
 		// a previous EventSource connection from wiping out the new handler's
@@ -76,7 +80,7 @@ func (h *TodoHandler) handleSSEStream(c *core.RequestEvent) error {
 	// We write a comment line (: heartbeat) which the SSE spec defines as
 	// a no-op that clients must ignore, so it is invisible to Datastar.
 	flusher, canFlush := c.Response.(http.Flusher)
-	heartbeat := time.NewTicker(15 * time.Second)
+	heartbeat := time.NewTicker(config.DefaultSSEHeartbeatInterval)
 	defer heartbeat.Stop()
 
 	for {
@@ -220,7 +224,7 @@ func (h *TodoHandler) streamTodo(c *core.RequestEvent, sse *sdk.ServerSentEventG
 	// The durable workflow emits a synthetic "workflow-completed" event
 	// once all five steps finish — mark the onboarding stepper done.
 	if evt.Event == "workflow-completed" {
-		if err := h.applyOnboarding(sse, 0, 0, "completed", "Workflow completed", true); err != nil {
+		if err := h.applyOnboarding(sse, 0, 0, onbStatusCompleted, "Workflow completed", true); err != nil {
 			return err
 		}
 		return emitToast(sse, "Workflow completed — 3 example todos created", retryStatusSuccess)
@@ -320,7 +324,7 @@ func (h *TodoHandler) streamSuggestResult(sse *sdk.ServerSentEventGenerator, pay
 		return err
 	}
 	if p.SuggestErr != "" {
-		return emitToast(sse, "Suggest failed: "+p.SuggestErr, "error")
+		return emitToast(sse, "Suggest failed: "+p.SuggestErr, phaseError)
 	}
 	return emitToast(sse, fmt.Sprintf("Got %d suggestions", len(p.Suggestions)), retryStatusSuccess)
 }
@@ -341,7 +345,7 @@ func (h *TodoHandler) streamProgress(sse *sdk.ServerSentEventGenerator, payload 
 	}
 	// Mark done on the finalize phase; the streamTodo dispatcher also
 	// flips $workflowCompleted via the "workflow-completed" event type.
-	completed := p.Phase == "finalize"
+	completed := p.Phase == onbPhaseFinalize
 	if err := h.applyOnboarding(sse, p.Step, p.Total, p.Phase, p.Detail, completed); err != nil {
 		return err
 	}
@@ -395,7 +399,7 @@ func (h *TodoHandler) applyOnboarding(
 		"onboardingTotal":  total,
 		"onboardingPhase":  phase,
 		"onboardingDetail": detail,
-		"techStep":         "workflow",
+		"techStep":         onbPhaseWorkflow,
 	}
 	if completed {
 		signals["workflowCompleted"] = true
@@ -421,7 +425,7 @@ func (h *TodoHandler) dispatchStreamMessage(c *core.RequestEvent, sse *sdk.Serve
 		return h.streamTodo(c, sse, job.Payload)
 	case "clients":
 		return h.streamClients(sse, job.Payload)
-	case "suggest_result":
+	case jobTypeSuggestResult:
 		return h.streamSuggestResult(sse, job.Payload)
 	case "progress":
 		return h.streamProgress(sse, job.Payload)
@@ -440,10 +444,9 @@ func (h *TodoHandler) dispatchStreamMessage(c *core.RequestEvent, sse *sdk.Serve
 func (h *TodoHandler) broadcastClientCount() {
 	payload := mustJSON(map[string]any{"count": h.q.Hub().CountUserClients()})
 	h.q.Hub().Broadcast(mustJSON(queue.Job{Type: "clients", Payload: payload}))
-}
-
-// on the client. The toast's open state, dismiss timer, and progress bar
-// are all driven by Datastar attributes on the rendered template.
+} // EmitToast renders a toast component and appends it to the
+// toast-container. The toast's open state, dismiss timer, and progress
+// bar are all driven by Datastar attributes on the rendered template.
 func emitToast(sse *sdk.ServerSentEventGenerator, message, toastType string) error {
 	return dshelpers.RenderAndPatch(
 		sse,

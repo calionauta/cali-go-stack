@@ -18,7 +18,7 @@ import (
 // LLM inline. Suggesting completions is exactly the kind of slow, failure-
 // prone work the queue exists for: an LLM call can take seconds and can
 // fail, so we hand it to the worker pool and stream the result back over
-// SSE (see handleSuggestJob + the "suggest_result" case in the SSE
+// SSE (see handleSuggestJob + the jobTypeSuggestResult case in the SSE
 // dispatcher). The HTTP response only flips suggestPending so the UI can
 // show a spinner.
 func (h *TodoHandler) handleSuggest(c *core.RequestEvent) error {
@@ -107,7 +107,7 @@ func (h *TodoHandler) handleSuggestJob(ctx context.Context, hub *queue.SSEHub, j
 			signalSuggestErr:     "AI suggest failed: LLM not configured",
 			signalSuggestPending: false,
 		}
-		body, marshalErr := json.Marshal(queue.Job{Type: "suggest_result", Payload: mustJSON(errResult)})
+		body, marshalErr := json.Marshal(queue.Job{Type: jobTypeSuggestResult, Payload: mustJSON(errResult)})
 		if marshalErr == nil {
 			if job.ClientID != "" {
 				hub.Send(job.ClientID, body)
@@ -131,7 +131,7 @@ func (h *TodoHandler) handleSuggestJob(ctx context.Context, hub *queue.SSEHub, j
 		result[signalSuggestions] = suggestions
 	}
 
-	body, marshalErr := json.Marshal(queue.Job{Type: "suggest_result", Payload: mustJSON(result)})
+	body, marshalErr := json.Marshal(queue.Job{Type: jobTypeSuggestResult, Payload: mustJSON(result)})
 	if marshalErr != nil {
 		return fmt.Errorf("marshal suggest result: %w", marshalErr)
 	}

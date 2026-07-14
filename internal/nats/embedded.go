@@ -1,3 +1,5 @@
+// SCOPE:pluggable - REMOVE if not using NATS.
+// Starts embedded NATS server or connects as Leaf Node.
 package nats
 
 import (
@@ -53,10 +55,11 @@ func StartEmbedded(storeDir string) error {
 	// can finish a moment after Start() returns; if a caller issues
 	// AddStream before it's up, the request hits "no responders" and
 	// the broadcaster falls back to in-memory.
-	if !ns.ReadyForConnections(10 * time.Second) {
+	const natsReadyTimeout = 10 * time.Second
+	if !ns.ReadyForConnections(natsReadyTimeout) {
 		return fmt.Errorf("nats: embedded server never became ready")
 	}
-	if err := waitForJetStream(js, 10*time.Second); err != nil {
+	if err := waitForJetStream(js, natsReadyTimeout); err != nil {
 		return err
 	}
 
@@ -155,7 +158,7 @@ func ConnectExisting(url string) error {
 	nc, err := natsio.Connect(
 		url,
 		natsio.RetryOnFailedConnect(true),
-		natsio.Timeout(15*time.Second),
+		natsio.Timeout(15*time.Second), //nolint:mnd // 15s is the standard NATS connection timeout
 	)
 	if err != nil {
 		return err

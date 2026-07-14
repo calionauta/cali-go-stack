@@ -1,19 +1,10 @@
-// Package dagnats holds the DagNats client + workflow definitions used by
-// the template. The server itself is booted in cmd/web/dagnats.go (which
-// needs the *server.Server type to register worker handlers via the
-// WorkerShim). DagNats (https://github.com/danmestas/dagnats) is a
-// DAG-based workflow engine built on NATS JetStream: workflows are
-// declarative JSON (not Go code), so renaming/refactoring Go handlers
-// never breaks an in-flight workflow — the workflow references task
-// *names* (strings), not Go symbols. It reuses the embedded NATS
-// JetStream model the template already uses for realtime.
-//
-// DagNats runs in the SAME binary but on its OWN HTTP port (default
-// 127.0.0.1:8090) so its API + console never collide with the
-// PocketBase app on :8080. Under -tags "jetstream dagnats" it owns the
-// embedded NATS on :4222 and the realtime broadcaster attaches to it
-// (single-NATS convention); without the jetstream tag it boots its own
-// NATS.
+// SCOPE:pluggable - REMOVE if not using durable workflows.
+// To remove: delete internal/dagnats/, cmd/web/dagnats.go, router/onboarding_dagnats.go and dagnats_proxy_dagnats.go.
+// Package dagnats is an HTTP client for the DagNats workflow engine.
+// The server is booted in cmd/web/dagnats.go. DagNats is a DAG-based
+// workflow engine built on NATS JetStream: workflows are declarative
+// JSON, so refactoring handlers never breaks an in-flight workflow.
+// It reuses the embedded NATS JetStream.
 package dagnats
 
 import (
@@ -95,6 +86,7 @@ func (c *Client) StartRun(ctx context.Context, workflow string, input any) (stri
 		return "", fmt.Errorf("dagnats: start run: status %d: %s", resp.StatusCode, string(respBody))
 	}
 	var result struct {
+		//nolint:tagliatelle // DagNats API uses snake_case (run_id)
 		RunID string `json:"run_id"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
@@ -132,6 +124,8 @@ func (c *Client) Signal(ctx context.Context, runID, name string, payload any) er
 }
 
 // RunStatus is a trimmed view of a DagNats run used by the progress poller.
+//
+//nolint:tagliatelle // DagNats API uses snake_case (run_id), keep matching the wire format.
 type RunStatus struct {
 	RunID  string `json:"run_id"`
 	Status string `json:"status"`
