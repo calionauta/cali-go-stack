@@ -25,6 +25,7 @@ var (
 // app falls back to the in-memory broadcaster with the
 // "nats: no responders" log line.
 func StartEmbedded(storeDir string) error {
+	NS, NC, JS = nil, nil, nil
 	ns, err := server.NewServer(&server.Options{
 		Port:      -1,
 		NoLog:     true,
@@ -183,10 +184,13 @@ func ConnectExisting(url string) error {
 func Stop() {
 	if NC != nil {
 		NC.Close()
+		NC = nil
 	}
 	if NS != nil {
 		NS.Shutdown()
+		NS = nil
 	}
+	JS = nil
 }
 
 // JetStream returns the JetStream context established by StartEmbedded

@@ -38,6 +38,7 @@ Skills: `cali-coding-go-standards` (code quality), `cali-code-navigation` (cymba
 - NO manual `id` on PocketBase records (PK Max=15, `^[a-z0-9]+$`).
 - NO Datastar `PatchElements` whose top-level element lacks `id` + `WithSelector` (client throws `PatchElementsNoTargetsFound`). Use `internal/datastar.RenderAndPatch` paired with a selector.
 - NO real LLM in tests — inject a stub (`internal/llm/fakeserver` only inside `internal/llm/`).
+- **Prefer Datastar attributes** (`data-on:*`, signals, expressions, `__window`/`__document` modifiers) over vanilla JS for client-side logic. Inline JS only when unavoidable, kept adjacent to the markup (locality of behavior).
 
 ## SCOPE annotations (read before editing)
 
