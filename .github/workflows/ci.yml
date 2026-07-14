@@ -34,6 +34,9 @@ jobs:
         with:
           version: v2.12.2
           skip-cache: true
+          # cmd/desktop pulls in wails v3, which needs webview CGO headers
+          # unavailable on the ubuntu runner; lint the web-facing packages only.
+          args: ./cmd/web/ ./config/ ./db/ ./features/... ./internal/... ./router/... ./web/...
       - name: Datastar-lint
         run: |
           go install github.com/calionauta/datastar-lint@latest
