@@ -52,3 +52,9 @@ coverage.out
 
 # Generated draft posts (CONTENT_WRITING.md stays tracked; posts/ do not)
 posts/
+
+# stelow skill artifacts
+stelow.json
+
+# Pre-built binaries (belong in releases, not in the repo)
+gogogo-desktop
