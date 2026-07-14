@@ -72,7 +72,6 @@ linters:
       disable-all: false
     sloglint:
       no-mixed-args: true
-      context-only: false
     goconst:
       min-len: 4
       min-occurrences: 3
@@ -136,11 +135,6 @@ linters:
       - path: _test\.go
         linters:
           - gocyclo
-      # sloglint in context-only mode requires context in all log calls;
-      # test helpers and top-level functions don't always have one.
-      - path: _test\.go
-        linters:
-          - sloglint
       # bodyclose is for production HTTP callers, not test response readers
       # (tests should NOT close the response body of an httptest server).
       - path: _test\.go
