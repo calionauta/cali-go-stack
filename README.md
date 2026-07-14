@@ -4,6 +4,8 @@
   <img src="web/resources/static/logo.png" alt="gogogo-fullstack-template" width="512">
 </p>
 
+> **I still don't understand why GitHub keeps crediting Claude as a contributor to my repos.** My daily drivers are pi.dev with Minimax M3 and DeepSeek V4 Flash. Claude, if you're freelancing on my repositories while I'm asleep, at least start fixing the bugs too. If anyone knows how GitHub actually computes contributors, I'd genuinely love to know.
+
 > **Go full-stack template. Single binary, ~56 MB, runs on scratch.**  
 > Database & auth (PocketBase, embedded SQLite). Reactive UI (Datastar, SSE-driven).  
 > Background jobs & retries (goqite). Offline-first collaboration (Loro CRDT).  
