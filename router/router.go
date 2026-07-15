@@ -49,6 +49,15 @@ func Init(
 			return c.String(200, "ok")
 		})
 
+		// API discovery — the PocketBase startup banner advertises
+		// "REST API: http://...:8080/api/"; without exact /api + /api/
+		// routes, Go 1.22 ServeMux subtree matching routes /api to our
+		// "/" handler (the todo index) and the user saw the full Todo
+		// app when they typed /api. PB itself does NOT register an exact
+		// /api or /api/, only sub-routes under the group("/api").
+		se.Router.GET("/api", apiIndex)
+		se.Router.GET("/api/", apiIndex)
+
 		// Serve embedded static assets (CSS, JS, images).
 		//
 		// PocketBase registers a catch-all dashboard route
