@@ -155,7 +155,18 @@ This template ships a strict `golangci-lint` configuration (27 linters) designed
 | Style | `revive`, `gocritic`, `tagliatelle`, `goconst`, `dupl`, `lll`, `modernize` | Non-idiomatic patterns, magic numbers, duplicated code, long lines |
 | Formatting | `gofumpt` + `goimports` (formatters, not linters) | Compulsory consistent layout and import ordering |
 
-**For LLM agents reading this:** before editing any Go file, run `make ci-local` to establish a baseline. After making changes, run `make lint` to verify the linters pass. The `golangci-lint` configuration lives in `.golangci.yml` at the project root — read it if you need to understand what each linter expects. If a lint forces you to restructure code, that is usually a sign the original approach had a deeper issue.
+**For LLM agents reading this:** the cheapest reliable path is
+**`make signoff`** (= `make ci-local` + `gh signoff` stamp on
+HEAD). Run it before pushing anything. The 1–3 min local gate
+catches ~95%% of regressions that would otherwise only surface
+on remote CI: race detector races (e.g. `TestXxx` tripping
+`-race` on a TOCTOU field), lint warnings, format drift, CSS
+staleness, `sync.Once` wrong placement, Dockerfile `ARG`
+inline placement that breaks `docker buildx`, etc. CI then
+becomes a parallel validator + auto-deploy step, not the
+primary gatekeeper.
+
+Workflow: `edit → make ci-local (if iterating) → git commit -F /tmp/msg → make signoff → git push origin master`. The `golangci-lint` configuration lives in `.golangci.yml` at the project root — read it if you need to understand what each linter expects. If a lint forces you to restructure code, that is usually a sign the original approach had a deeper issue.
 
 **For human developers:** `make ci-local` runs the full gate (templ + datastar-lint + css-check + golangci-lint + race tests + build). `make lint` runs just `go vet` + `golangci-lint`. We deliberately keep `gofumpt` and `goimports` as formatters (not linters) so `golangci-lint run` never auto-formats your files — formatting is a separate explicit step.
 
@@ -168,7 +179,12 @@ This template ships a strict `golangci-lint` configuration (27 linters) designed
 | `make fmt` | `gofumpt` + `goimports` formatting only |
 | `make ci-local` | Full local gate, identical to CI: templ → datastar-lint → css-check → golangci-lint → race tests → build |
 
-The pre-commit hook (`make setup`) runs `gofumpt`, `goimports`, `datastar-lint`, a CSS staleness check, `go mod tidy`, and `golangci-lint` on every commit — so formatting and lint violations never reach the remote. Run `make ci-local` for the full gate (adds tests + build) before pushing.
+The pre-commit hook (`make setup`) runs `gofumpt`, `goimports`,
+`datastar-lint`, a CSS staleness check, `go mod tidy`, and
+`golangci-lint` on every commit — so formatting and lint
+violations never reach the remote. Run **`make signoff`** for
+the full gate (adds `ci-local` + `gh signoff` stamp) before
+pushing. Same checks the remote CI runs.
 
 ## The example: Todo App with realtime
 
@@ -288,16 +304,20 @@ Open `http://localhost:8080` and see the Todo App running.
 ### Other commands
 
 ```bash
-make build      # Build binary (unified: everything included)
-make test       # Run tests with race detector (-p 1 for DagNats engine stability)
-make ci-local   # Full local gate: templ + datastar-lint + css-check + golangci-lint + race tests + build
-make css        # Build app.min.css (Tailwind v4 + DaisyUI v5)
-make dev        # Live reload with Air
-make templ      # Regenerate templ components
-make lint       # go vet + golangci-lint (27 linters)
-make fmt        # gofumpt + goimports formatting
-make setup      # Install pre-commit + pre-push hooks
+make build         # Build binary (unified: everything included)
+make dev           # Live reload with Air (also re-runs templ + vet)
+make templ         # Regenerate .templ Go files after a .templ edit
+make css           # Rebuild app.min.css from src/css/input.css
+make lint          # go vet + golangci-lint (27 linters), full repo
+make datastar-lint # Datastar attribute / signal anti-patterns in .templ
+make fmt           # gofumpt + goimports check (CI gate; apply via gofumpt -w)
+make test          # Race tests (`-p 1` for DagNats engine stability). Discouraged locally — remote CI runs them.
+make ci-local      # Full local gate (= CI): templ + datastar-lint + css-check + golangci-lint + race tests + build
+make signoff       # `make ci-local` + `gh signoff -f` stamp. Default pre-push gate — catches ~95%% of regressions in <3min locally.
+make setup         # Install pre-commit + pre-push hooks
 make docker-image  # Build and push multi-arch image to ghcr.io
+
+`make check` was removed (redundant subset of `make ci-local`).
 ```
 
 ### Build pipeline
@@ -317,22 +337,21 @@ The pre-commit hook regenerates `app.min.css` automatically whenever
 `.templ` or `.go` files change, and `make ci-local` includes a `css-check`
 step that fails the gate if the working CSS file is out of date.
 
-## Local CI (gh-signoff)
+## Local CI (gh-signoff) — T5 of the feedback loop
 
-Pushing to `master` triggers GitHub Actions (`ci.yml` runs the full gate,
-then `deploy.yml` ships to production). You can run that **exact
-gate on your own machine** before pushing, so you don't wait on remote
-runners (and don't push a broken commit).
+Pushing to `master` triggers GitHub Actions: `ci.yml` runs the full
+gate, then `deploy.yml` ships to production. Run that **exact gate
+on your own machine** before pushing, so you don't wait on remote
+runners and don't push a broken commit.
 
 We use [gh-signoff](https://github.com/basecamp/gh-signoff) — a GitHub CLI
-extension that stamps a green commit status after your local tests pass.
+extension that stamps a green commit status after your local gate passes.
 
 ```bash
 # one-time: install the extension
 gh extension install basecamp/gh-signoff
 
-# before pushing: run the full CI gate locally, then stamp the commit
-# green (force so it stamps even before the commit is pushed)
+# before pushing: run ci-local, then stamp the commit green
 make signoff
 ```
 
@@ -344,9 +363,48 @@ CI runs) rather than the standalone `gofumpt` binary, which can be a newer
 release than the one golangci-lint bundles and would otherwise produce
 false-positive listings. **The dependency runs one way: `signoff` calls `ci-local`; `ci-local` never calls `signoff`** — that keeps the local gate clean to run on its own, and reserves the git-stamp for the explicit pre-push moment.
 
+### Feedback tiers at a glance
+
+| Tier | Command | Cost | Catches |
+|---|---|---|---|
+| T1 format+build | `gofumpt -l -d <files>` + `go build ./...` | ~10s | Format drift + compile errors |
+| T2 lint scoped | `go vet` + `golangci-lint run <changed-glob>` + `make templ/datalint` (when templ) | ~15–20s | Shadow, mnd, nolintlint, revive, staticcheck, datastar attrs |
+| T3 tests scoped | `go test -race -count=1 <changed-pkg>` | ~5–30s | Race detector on tests, business logic |
+| T4 full local gate | `make ci-local` | ~60–180s | Full pre-push check (= CI) |
+| **T5 signoff local** | `make signoff` (= T4 + `gh signoff -f`) | ~60–180s | Same as T4 + commits the verification to git |
+
+T5 is the recommended pre-push gate. The remote CI then runs the same
+T4 checks as a parallel validator + drives the auto-deploy step;
+signoff does **not** skip CI. Cycle when a regression appears on CI:
+
+1. CI red: read the failing log step (test, lint, css-check, build).
+2. Reproduce locally (`make ci-local`) — usually the same failure.
+3. Fix + commit.
+4. `make signoff` again — green means it would pass CI on a re-run.
+
 > **Advisory status, by design.** This repo deploys on **push to `master`**
 > (not PR merge), so the signoff status is a *signal*, not a hard gate.
 > We do not run `gh signoff install` (which would gate PR merges) — it would be meaningless for a push-to-deploy flow, so we leave it off by design.
+
+### What signoff catches that CI doesn't
+
+Nothing — CI runs the same checks. What signoff does is run them *locally
+first*, so a regression shows up in your terminal in 1–3 min instead of
+after a CI queue. The biggest emitters the local loop has caught:
+
+- Race detector on `TestXxx` (e.g. `sync.Once` instead of TOCTOU
+  init).
+- Dockerfile `ARG` inline (`ARG X=foo` inside `RUN ... && ...` chain
+  fails Buildkit parse).
+- Stale `-tags jetstream dagnats` after the unified-build era (silent
+  in Go compile, silent in lint, but visible on `docker buildx`).
+- CSS bundle silently stale (Template or GO file changed but
+  `app.min.css` not regenerated).
+- Format drift accumulating through several small commits.
+
+CI does the same checks. The local run is the same `make ci-local`
+target CI runs. The difference is **who waits** for the run.
+
 
 ## Desktop & Mobile (Wails v3 + Loro CRDT + NATS Leaf Node)
 
