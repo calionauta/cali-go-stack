@@ -1,4 +1,4 @@
-// SCOPE:pluggable - E2E test for CRDTTransport over JetStream.
+// SCOPE:plugin - E2E test for CRDTTransport over JetStream.
 //
 // Boots a real embedded NATS server (via internal/nats.StartEmbedded),
 // creates two CRDTTransports in the same process (simulating two

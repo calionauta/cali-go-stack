@@ -1,4 +1,4 @@
-// SCOPE:pluggable - REMOVE if you don't need idempotent offline replay.
+// SCOPE:plugin - REMOVE if you don't need idempotent offline replay.
 //
 // PocketBase OnRecordCreateRequest hook that dedupes todo creation by
 // the (idem_key, owner) pair. When the UI sends a request with an

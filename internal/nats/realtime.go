@@ -146,8 +146,8 @@ func (b *JetStreamBroadcaster) Close() {
 // NewTodoBroadcaster returns a JetStream-backed broadcaster bound to hub.
 // It auto-subscribes to the TODOS stream, so published events are
 // re-emitted to the SSE Hub without any further caller action. With the
-// default build tag the same call returns an in-memory broadcaster; the
-// signature is identical so callers don't branch.
+// no JetStream context wired (js == nil) the same call returns an
+// in-memory broadcaster; the signature is identical so callers don't branch.
 func NewTodoBroadcaster(js JetStreamLike, hub *queue.SSEHub) TodoBroadcaster {
 	jsCtx, ok := js.(natsio.JetStreamContext) //nolint:staticcheck // runtime alias unwrap
 	if !ok {

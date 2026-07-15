@@ -7,7 +7,7 @@
 
 ## Principles
 
-- **Unified build.** One `go build ./cmd/web` compiles everything — no feature build tags. The only tag in play is `-tags no_default_driver`, which swaps the SQLite driver (`ncruces/go-sqlite3`) in for `modernc.org/sqlite`. Features are never gated behind build tags; opt out at runtime with env vars (`NATS_ENABLED=false`, `DAGNATS_ENABLED=false`).
+- **Unified build.** One `go build ./cmd/web` compiles everything — no build tags. `ncruces/go-sqlite3` is the always-on SQLite driver (it registers `sqlite3`); PocketBase also bundles `modernc.org/sqlite`, but that registers `sqlite` and stays unused, so nothing is gated behind a tag. Opt out at runtime with env vars (`NATS_ENABLED=false`, `DAGNATS_ENABLED=false`).
 - **Features in `features/`**, infrastructure in `internal/`. Features depend on infra, never the reverse.
 - **Wiring in `router/router.go` → `Init()`**. Every feature is registered by one function call.
 - **Startup order in `cmd/web/main.go`** (see diagram below).
@@ -23,7 +23,7 @@ Every component belongs to one of three layers, matching the `SCOPE:` annotation
 | SCOPE | Meaning | You would… |
 |:------|:--------|:-----------|
 | **Core** 🔴 `SCOPE:core` | Binary does not work without it. | Customize, never remove. |
-| **Pluggable** 🟡 `SCOPE:pluggable` | Binary works but loses capability if removed. Clear removal instructions inline. | Swap for an equivalent, or delete + remove wiring call. |
+| **Plugin** 🟡 `SCOPE:plugin` | Binary works but loses capability if removed. Clear removal instructions inline. | Swap for an equivalent, or delete + remove wiring call. |
 | **Feature** 🟢 `SCOPE:feature` | A demo/add-on. Depends on other packages (listed in comment). | Delete the package + dependent packages + remove wiring call. |
 
 ---
@@ -38,7 +38,7 @@ These are **product-level demos** — what the end user sees. All are Feature la
 | **Todo** | `features/todo/` | 🟢 FEATURE | `todoH.RegisterRoutes(se)` | Delete package + remove block |
 | **Whiteboard** | `features/whiteboard/` + `internal/collab/` | 🟢 FEATURE | `registerWhiteboard(se, q)` | Delete both + `whiteboard.js` + remove call |
 | **Onboarding** | `features/todo/handlers/onboarding.go` + `internal/dagnats/` | 🟢 FEATURE | `registerOnboarding(...)` | Delete both + remove call |
-| **EntityStore (persistence)** | `features/store/` (interface) + `features/store/pbstore/` (default impl) | 🟡 PLUGGABLE | `todoH.SetStore(pbstore.New(app, "todos"))` | Drop the `SetStore` call from `router.Init`; handler's lazy fallback (`h.st()`) rebuilds a PBStore. Add a new impl (e.g. `features/store/crdtstore/`) and switch the wire call — zero changes in the handlers. |
+| **EntityStore (persistence)** | `features/store/` (interface) + `features/store/pbstore/` (default impl) | 🟡 PLUGIN | `todoH.SetStore(pbstore.New(app, "todos"))` | Drop the `SetStore` call from `router.Init`; handler's lazy fallback (`h.st()`) rebuilds a PBStore. Add a new impl (e.g. `features/store/crdtstore/`) and switch the wire call — zero changes in the handlers. |
 
 > **⚠️ Auth is a mixed package.** The **login UI** (login page, navbar) is 🟢 FEATURE — replace with OAuth, SSO, etc. The **auth middleware** (`LoadAuthFromCookie`) is 🔴 CORE — the app's security model depends on it. They live in the same package for cohesion; if you replace the UI, keep the middleware functions.
 
@@ -53,16 +53,16 @@ These are the **plumbing layers**. Each is independently replaceable.
 | **PocketBase** (DB + Auth + API) | `db/` | 🔴 CORE | `db.Init(cfg)` in `server.Run()` | Replace with your own DB + auth stack |
 | **Config** | `config/` | 🔴 CORE | `config.Load()` in `main.go` | Add/remove env vars |
 | **Queue + SSE Hub** (goqite) | `internal/queue/` | 🔴 CORE | `queue.New(cfg)` in `server.Run()` | Replace goqite with Redis; SSE Hub is in `ssehub.go` |
-| **Event bus: NATS JetStream** | `internal/nats/` | 🟡 PLUGGABLE | `startNATS(cfg)` in `main.go` | Remove `startNATS` call; falls back to in-memory fan-out via SSE Hub |
-| **CRUD proxy (offline sync)** | `internal/nats/crudproxy.go` | 🟡 PLUGGABLE | `NewCrudPublisher(js)` + `NewCrudConsumer(app, js)` in `router.Init()` | Remove `crudproxy.go`; toggle via `OFFLINE_SYNC_ENABLED=false` (default on) |
-| **DagNats** (workflows) | `internal/dagnats/` | 🟡 PLUGGABLE | `startDagNats(cfg, pb, ...)` in `main.go` | Remove call + delete package |
-| **CRDT + Sync** (Loro) | `internal/collab/` | 🟡 PLUGGABLE | Via `registerWhiteboard` + `registerCollabSync` | Delete with whiteboard |
-| **SSE helpers** (Datastar) | `internal/datastar/` | 🟡 PLUGGABLE | Imported by handlers | Replace with your own SSE rendering |
+| **Event bus: NATS JetStream** | `internal/nats/` | 🟡 PLUGIN | `startNATS(cfg)` in `main.go` | Remove `startNATS` call; falls back to in-memory fan-out via SSE Hub |
+| **CRUD proxy (offline sync)** | `internal/nats/crudproxy.go` | 🟡 PLUGIN | `NewCrudPublisher(js)` + `NewCrudConsumer(app, js)` in `router.Init()` | Remove `crudproxy.go`; toggle via `OFFLINE_SYNC_ENABLED=false` (default on) |
+| **DagNats** (workflows) | `internal/dagnats/` | 🟡 PLUGIN | `startDagNats(cfg, pb, ...)` in `main.go` | Remove call + delete package |
+| **CRDT + Sync** (Loro) | `internal/collab/` | 🟡 PLUGIN | Via `registerWhiteboard` + `registerCollabSync` | Delete with whiteboard |
+| **SSE helpers** (Datastar) | `internal/datastar/` | 🟡 PLUGIN | Imported by handlers | Replace with your own SSE rendering |
 | **Secrets** (age) | `internal/secrets/` | 🔴 CORE | `secrets.Load(appName)` in `config.Load()` | Remove call; env vars work without it |
-| **LLM client** (GoAI) | `internal/llm/` | 🟡 PLUGGABLE | `llm.New(apiKey)` in `server.Run()` | Remove env var; UI auto-hides the Suggest button. *The package stays if you add your own AI feature — only the demo Suggest route is removable.* |
+| **LLM client** (GoAI) | `internal/llm/` | 🟡 PLUGIN | `llm.New(apiKey)` in `server.Run()` | Remove env var; UI auto-hides the Suggest button. *The package stays if you add your own AI feature — only the demo Suggest route is removable.* |
 
 > **🔴 CORE** = keep or replace the whole stack.  
-> **🟡 PLUGGABLE** = you could remove it and still serve pages, but lose cross-instance broadcast, async jobs, etc.  
+> **🟡 PLUGIN** = you could remove it and still serve pages, but lose cross-instance broadcast, async jobs, etc.  
 > **🟢 FEATURE** = pure demo. Delete the package, remove the wiring call, nothing breaks.
 
 ## Offline strategy for PocketBase features (todo, CRUD records)
@@ -115,7 +115,7 @@ For features that need **conflict-free offline editing** (not just offline queui
 
 The **whiteboard already uses Loro CRDT**. For the **todo feature**, SW + Background Sync is the implemented path — `web/resources/static/sw.js` intercepts `/api/*` mutations, queues them in IndexedDB, and replays them via Background Sync on reconnect; the shared **`OfflineBanner`** (`internal/components/`) surfaces the offline/syncing/online state to the user. This preserves PocketBase realtime while keeping the KISS offline-queue option.
 
-**Replay dedup (`db/idempotency_hook.go` + `db/idempotency_seed.go`, SCOPE:pluggable).** PocketBase generates record IDs server-side, so a naive replay of a queued POST creates a duplicate. The fix: `createForm` sends a fresh `idem_key` UUID in the form body, and the `OnRecordCreateRequest` hook (`RegisterIdempotencyHook`) on the `todos` collection looks up an existing record with the same `(idem_key, owner)` and returns it in place of the inbound create. The field + unique index `(idem_key, owner)` are installed by `enableTodosIdempotency(col)` in `db/idempotency_seed.go`. The unique index is the race-condition safety net: two concurrent requests racing the hook see the second one fail at the DB layer with `idem_key: Value must be unique`. UPDATE/DELETE handlers are not covered: toggles are naturally idempotent (two flips cancel out), and delete-on-already-deleted is a benign 404. Onboarding start (DagNats workflow trigger) accepts a small duplicate-cost on replay — the second run creates a second set of example todos, but the durable workflow tracks them as separate runs.
+**Replay dedup (`db/idempotency_hook.go` + `db/idempotency_seed.go`, SCOPE:plugin).** PocketBase generates record IDs server-side, so a naive replay of a queued POST creates a duplicate. The fix: `createForm` sends a fresh `idem_key` UUID in the form body, and the `OnRecordCreateRequest` hook (`RegisterIdempotencyHook`) on the `todos` collection looks up an existing record with the same `(idem_key, owner)` and returns it in place of the inbound create. The field + unique index `(idem_key, owner)` are installed by `enableTodosIdempotency(col)` in `db/idempotency_seed.go`. The unique index is the race-condition safety net: two concurrent requests racing the hook see the second one fail at the DB layer with `idem_key: Value must be unique`. UPDATE/DELETE handlers are not covered: toggles are naturally idempotent (two flips cancel out), and delete-on-already-deleted is a benign 404. Onboarding start (DagNats workflow trigger) accepts a small duplicate-cost on replay — the second run creates a second set of example todos, but the durable workflow tracks them as separate runs.
 
 ---
 
@@ -129,7 +129,7 @@ The **whiteboard already uses Loro CRDT**. For the **todo feature**, SW + Backgr
                           ▼            ▼
               ┌──────────────────┐  ┌───────────────────┐
               │    SSE Hub       │  │  DagNats workflows│
-              │ (in-process fan) │  │  (Pluggable 🟡, :8090)  │
+              │ (in-process fan) │  │  (Plugin 🟡, :8090)  │
               └────────┬─────────┘  └────────┬──────────┘
                        │                     │
                        ▼                     ▼
@@ -139,7 +139,7 @@ The **whiteboard already uses Loro CRDT**. For the **todo feature**, SW + Backgr
               └──────────────────────────────────┘
 
               ┌──────────────────────────────────┐
-              │   NATS JetStream                 │  ← Pluggable 🟡: cross-instance event bus
+              │   NATS JetStream                 │  ← Plugin 🟡: cross-instance event bus
               │                                   │
               │  ▲ WebSyncWorker publishes ops    │
               │  ▲ DagNats persists workflow      │
@@ -149,12 +149,12 @@ The **whiteboard already uses Loro CRDT**. For the **todo feature**, SW + Backgr
 
 - **goqite** (Core 🔴): every feature's async work. Worker pool streams progress via SSE Hub.
 - **SSE Hub** (Core 🔴, in `internal/queue/ssehub.go`): in-process fan-out to browser tabs via Go channels. Per-client channels, replay buffer, backpressure. **Does not cross the NATS boundary** — it is purely in-process.
-- **NATS JetStream** (Pluggable 🟡): cross-instance event bus. Used by:
+- **NATS JetStream** (Plugin 🟡): cross-instance event bus. Used by:
   - Whiteboard sync — shapes published directly via `WebSyncWorker.nc.Publish()` to subject `app.sync.<docID>` (bypasses SSE Hub entirely)
   - DagNats — workflow engine uses JetStream for durable state
   - Desktop Leaf Node — optional edge sync
   - *(Todos currently use the in-memory SSE Hub broadcaster, not NATS — the `JetStreamBroadcaster` exists in code but the startup order means it's never triggered. This is a pre-existing limitation: `server.Run(cfg, nil)` runs before `startNATS()`, so the router never receives a valid JetStream context. To fix it, either: (a) pass `startNATS()`'s JetStream context through `server.Run(cfg, js)`, or (b) follow the whiteboard's pattern of holding a direct `nc` connection reference.)*
-- **DagNats** (Pluggable 🟡): durable multi-step workflows as declarative JSON. Uses NATS JetStream for state.
+- **DagNats** (Plugin 🟡): durable multi-step workflows as declarative JSON. Uses NATS JetStream for state.
 
 ---
 
@@ -172,9 +172,9 @@ main.go
   │       ├─ registerOnboarding   🟢 FEATURE
   │       ├─ registerWhiteboard   🟢 FEATURE (creates DocStore, separate SSEHub)
   │       ├─ registerCollabSync   🟢 FEATURE (NATS listener)
-  │       └─ registerCrudConsumer 🟡 PLUGGABLE (if cfg.OfflineSync.Enabled)
-  ├─ startDagNats(cfg, pb, ...) ← 🟡 PLUGGABLE: boots engine (NATS on :4222)
-  ├─ startNATS(cfg)             ← 🟡 PLUGGABLE: connects or starts embedded NATS
+  │       └─ registerCrudConsumer 🟡 PLUGIN (if cfg.OfflineSync.Enabled)
+  ├─ startDagNats(cfg, pb, ...) ← 🟡 PLUGIN: boots engine (NATS on :4222)
+  ├─ startNATS(cfg)             ← 🟡 PLUGIN: connects or starts embedded NATS
   └─ pb.Start()                 ← 🔴 Core: serves HTTP
 ```
 

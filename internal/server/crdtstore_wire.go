@@ -1,4 +1,4 @@
-// SCOPE:pluggable - REMOVE if you don't want CRDT cross-instance sync.
+// SCOPE:plugin - REMOVE if you don't want CRDT cross-instance sync.
 //
 // Wires the CRDTStore JetStream transport when ENTITY_STORE=crdt AND
 // NATS is enabled. The transport publishes every local mutation to

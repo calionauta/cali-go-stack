@@ -70,7 +70,7 @@ make lint             # Run linters
 make build-jetstream
 
 # Or run in dev mode
-go run -tags jetstream ./cmd/web/
+go run ./cmd/web/
 NATS_ENABLED=true ./gogogo-fullstack-template
 ```
 
@@ -81,14 +81,14 @@ Workflows are **declarative JSON** (not Go), so renaming Go handlers never
 breaks an in-flight run. The engine runs in the same binary on its own
 port (`DAGNATS_HTTP_ADDR`, default `127.0.0.1:8090`) so its API/console
 never collides with the app on `:8080`. It boots its own embedded NATS —
-the `jetstream` and `dagnats` build tags are mutually exclusive.
+always compiled into the unified binary — no build tags, no separate
+build targets. Opt out of either at runtime with `NATS_ENABLED=false` or
+`DAGNATS_ENABLED=false`.
 
 ```bash
-# Build with DagNats support
-make build-dagnats
-
-# Or run in dev mode
-go run -tags dagnats ./cmd/web/
+# Build / run the unified binary (everything included)
+make build
+go run ./cmd/web/
 DAGNATS_ENABLED=true ./gogogo-fullstack-template
 ```
 

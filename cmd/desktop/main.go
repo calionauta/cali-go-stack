@@ -5,8 +5,8 @@
 // reverse proxy — so the desktop app and the web app share 100% of the
 // business logic.
 //
-// Build with -tags jetstream: the desktop becomes a NATS Leaf Node that
-// syncs its JetStream streams with the central server (NATS_LEAFNODE_URL)
+// When NATS_LEAFNODE_URL is set, the desktop becomes a NATS Leaf Node
+// that syncs its JetStream streams with the central server (NATS_LEAFNODE_URL)
 // — Phase B of the edge-sync design. Phase C (Loro CRDT collab) builds on
 // top of this transport.
 package main

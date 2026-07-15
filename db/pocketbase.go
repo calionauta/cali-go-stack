@@ -14,9 +14,11 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
-// Init creates a PocketBase instance with ncruces/go-sqlite3 as the SQLite driver.
-// ncruces is preferred over modernc for extension support (FTS5, spellfix1, unicode).
-// Build with: go build -tags no_default_driver (optional, to exclude modernc binary size).
+// Init creates a PocketBase instance with ncruces/go-sqlite3 as the always-on
+// SQLite driver (it registers the "sqlite3" database/sql driver). PocketBase also
+// bundles modernc.org/sqlite, but that registers "sqlite" and stays unused — so no
+// build tag is needed and a plain `go build` just works. Being cgo-free, ncruces
+// cross-compiles cleanly for the multi-arch Docker image and Wails desktop/mobile.
 func Init(cfg *config.Config) (*pocketbase.PocketBase, error) {
 	app := pocketbase.NewWithConfig(pocketbase.Config{
 		DefaultDataDir:       cfg.DataDir,

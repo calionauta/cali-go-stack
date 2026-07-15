@@ -96,15 +96,15 @@ type Signals struct {
 	// the first mutation.
 	LastItemSource string `json:"lastItemSource"`
 
-	// DagNatsEnabled reflects whether the binary was built with
-	// -tags dagnats AND started with DAGNATS_ENABLED=true. When true,
-	// the UI renders the "Run durable workflow" button.
+	// DagNatsEnabled reflects whether the DagNats engine is compiled in
+	// (always, in the unified build) AND started with DAGNATS_ENABLED=true.
+	// When true, the UI renders the "Run durable workflow" button.
 	DagNatsEnabled bool `json:"dagNatsEnabled"`
 
 	// RealtimeKind describes the active broadcast transport so the
 	// diagnostics panel can label it accurately: "JetStream" when the
-	// binary was built with -tags jetstream and NATS is enabled, else
-	// "in-memory". The default build uses the InMemoryBroadcaster.
+	// NATS is enabled and a JetStream context is wired, else "in-memory".
+	// The default build uses the InMemoryBroadcaster.
 	RealtimeKind string `json:"realtimeKind"`
 
 	// StoreLabel describes the active EntityStore strategy (e.g.

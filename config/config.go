@@ -102,9 +102,10 @@ type Config struct {
 		LeafNodeURL string
 	}
 
-	// DagNats holds the DagNats durable-workflow engine settings. Built
-	// with -tags dagnats. DagNats reuses the embedded NATS JetStream that
-	// the jetstream build already starts, so it needs no extra infra.
+	// DagNats holds the DagNats durable-workflow engine settings. It is
+	// always compiled; set DAGNATS_ENABLED=false to no-op it at runtime.
+	// DagNats reuses the embedded NATS JetStream that the realtime build
+	// already starts, so it needs no extra infra.
 	DagNats struct {
 		Enabled  bool
 		HTTPAddr string // HTTP/API/console listen addr (separate port from the app)
@@ -131,7 +132,7 @@ type Config struct {
 	// future domain entities). "pb" (default) uses PocketBase records
 	// + the OnRecordCreateRequest hook for offline-replay dedup.
 	// "crdt" uses Loro CRDTs per owner + a snapshot to PB; trade-off
-	// in docs/decisions.md v0.20.0 ADR. Phase 2 (JetStream op transport)
+	// See ARCHITECTURE.md (Phase 2: JetStream op transport).
 	// is the only way to get multi-instance sync on crdt.
 	EntityStore string
 
@@ -210,9 +211,9 @@ func getEnv(key, fallback string) string {
 }
 
 // envBool reads a boolean env var, falling back to def when unset or
-// unparseable. This lets a build tag supply the default (e.g. -tags
-// jetstream implies NATS on) while still allowing an explicit override
-// via the env var (NATS_ENABLED=false).
+// unparseable. The fallback lets a config file or env var (e.g.
+// NATS_ENABLED=false) override the default at runtime; every feature is
+// always compiled, so there is no build tag to flip.
 func envBool(key string, def bool) bool {
 	v := os.Getenv(key)
 	if v == "" {

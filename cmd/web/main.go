@@ -1,7 +1,7 @@
 // SCOPE:core - DO NOT REMOVE - Server entry point. This is the main binary.
 // Package main wires the binary's startup sequence: PocketBase, the
 // goqite queue, optional NATS JetStream realtime, the DagNats durable
-// workflow engine (build tag dagnats), and the HTTP routes. Run with
+// workflow engine (always compiled; opt out at runtime via DAGNATS_ENABLED), and the HTTP routes. Run with
 // `make dev` (live reload) or `make build` (single binary).
 //
 // All Fatalf calls live at the top of main and the actual long-running
@@ -89,8 +89,9 @@ func run() error {
 	}
 	defer shutdown()
 
-	// DagNats (build tag dagnats) owns the embedded NATS on :4222 and
-	// must boot first so the realtime broadcaster can attach to it.
+	// DagNats owns the embedded NATS on :4222 and must boot first so the
+	// realtime broadcaster can attach to it. It's always compiled; when
+	// DAGNATS_ENABLED=false it no-ops.
 	startDagNats(cfg, pb, todoH)
 	defer shutdownDagNats()
 

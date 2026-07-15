@@ -1,4 +1,4 @@
-// SCOPE:pluggable - REMOVE if you don't want CRDT realtime events.
+// SCOPE:plugin - REMOVE if you don't want CRDT realtime events.
 //
 // Wires the CRDTStore publisher so every saveSnapshot (local or via
 // ApplyRemoteOp from a peer instance) fans out a doc-version-bumped

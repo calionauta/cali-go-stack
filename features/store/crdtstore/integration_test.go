@@ -1,6 +1,6 @@
 package crdtstore
 
-// SCOPE:pluggable - E2E test for cross-process CRDT convergence.
+// SCOPE:plugin - E2E test for cross-process CRDT convergence.
 //
 // Simulates two CRDTStore instances sharing the same JetStream. A
 // creates a todo via Store A's API; the publisher ships the Loro op

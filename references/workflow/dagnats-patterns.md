@@ -1,4 +1,4 @@
-# DagNats patterns (build tag `dagnats`)
+# DagNats patterns (always compiled; opt out via `DAGNATS_ENABLED=false`)
 
 DagNats is a DAG-based durable workflow engine built on NATS JetStream.
 Workflows are **declarative JSON** — not Go code. The workflow references

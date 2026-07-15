@@ -36,9 +36,10 @@ type OnboardingHandler struct {
 }
 
 // RegisterOnboardingRoutes wires the onboarding HTTP routes into the
-// router. Build-tag gated: only compiled with -tags dagnats. The DagNats
-// engine must already be running (started in cmd/web/dagnats.go) so the
-// client can reach its REST API on baseURL.
+// router. Always compiled in the unified build (no build tag); it no-ops
+// when DAGNATS_ENABLED=false. The DagNats engine must already be running
+// (started in cmd/web/dagnats.go) so the client can reach its REST API
+// on baseURL.
 func RegisterOnboardingRoutes(
 	app *pocketbase.PocketBase,
 	_ *queue.Queue,

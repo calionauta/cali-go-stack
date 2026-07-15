@@ -21,7 +21,7 @@ import (
 // TestCrossSessionCreatePropagates is the regression guard for the exact
 // bug the user hit: creating a todo in one tab must surface in another
 // already-open tab. It boots the REAL production binary (the dev variant
-// the user runs: -tags "jetstream dagnats") and drives PocketBase's native
+// the user runs (unified build with NATS_ENABLED=true + DAGNATS_ENABLED=true)) and drives PocketBase's native
 // /api/realtime — the path the browser actually uses. The custom-router
 // test fixture (r.BuildMux) does NOT mount /api/realtime, so every prior
 // "realtime" test exercised only the SSE hub, never the record-mutation

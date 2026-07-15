@@ -1,6 +1,6 @@
 # JetStream Patterns: Multi-User Real-Time
 
-Requires `go build -tags jetstream`.
+Always compiled in the unified build; opt out via `NATS_ENABLED=false`.
 
 ## Embedded NATS Server
 

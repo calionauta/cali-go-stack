@@ -12,9 +12,10 @@ import (
 // returns a JetStreamContext wired to it, or nil if NATS is disabled or
 // failed to start (the caller falls back to the in-memory broadcaster).
 //
-// Single-NATS convention: under -tags dagnats the DagNats engine already
-// owns the embedded NATS on the conventional port (127.0.0.1:4222) and
-// boots before this function runs. In that case we connect to the
+// Single-NATS convention: the DagNats engine already owns the embedded
+// NATS on the conventional port (127.0.0.1:4222) and boots before this
+// function runs (the unified build always compiles it; it just no-ops
+// when DAGNATS_ENABLED=false). In that case we connect to the
 // existing server instead of starting a second one — one NATS, two
 // consumers (DagNats workflows + the realtime broadcaster).
 func startNATS(cfg *config.Config) nats.JetStreamLike {

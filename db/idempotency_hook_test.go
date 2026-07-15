@@ -1,4 +1,4 @@
-// SCOPE:pluggable - E2E test for the (idem_key, owner) unique index
+// SCOPE:plugin - E2E test for the (idem_key, owner) unique index
 // installed by ensureTodosCollection.
 //
 // The OnRecordCreateRequest hook itself is exercised by the live

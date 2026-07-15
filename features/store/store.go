@@ -1,7 +1,7 @@
 // SCOPE:core - EntityStore interface (the contract every storage
 // strategy implements).
 //
-// Package store defines the pluggable interface that abstracts how
+// Package store defines the plugin interface that abstracts how
 // domain entities (todos, notes, future entities) are persisted.
 // Two strategies live behind this interface today:
 //
@@ -22,7 +22,7 @@
 // or refactor this file; Go generics let each strategy implement
 // once for any Entity and each caller pin T to its own domain type.
 //
-// Trade-offs documented in docs/decisions.md (v0.20.0 ADR).
+// Trade-offs documented in ARCHITECTURE.md.
 package store
 
 import (
@@ -42,7 +42,7 @@ var ErrNotFound = errors.New("store: entity not found")
 // the caller fall back to List + per-row Delete).
 var ErrNotImplemented = errors.New("store: operation not implemented")
 
-// EntityStore is the pluggable interface every storage strategy
+// EntityStore is the plugin interface every storage strategy
 // implements. The type parameter T is the domain entity type (Todo,
 // Note, etc); the strategy is responsible for translating T to/from
 // its native representation (PB records, Loro snapshot, ...).

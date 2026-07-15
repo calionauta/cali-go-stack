@@ -1,4 +1,4 @@
-// SCOPE:pluggable - E2E test for CRDTStore.
+// SCOPE:plugin - E2E test for CRDTStore.
 //
 // Boots a temp PocketBase app (like db/idempotency_hook_test.go),
 // runs EnsureSchema, then exercises the 7 EntityStore methods

@@ -144,7 +144,7 @@ func waitForJetStream(js natsio.JetStreamContext, timeout time.Duration) error {
 }
 
 // ConnectExisting connects to an already-running NATS server (e.g. the
-// one booted by the DagNats engine under -tags dagnats) and wires the
+// one booted by the DagNats engine) and wires the
 // package-level NC/JS singletons. This is the single-NATS setup: instead
 // of starting a second embedded server, the realtime broadcaster reuses
 // the JetStream instance DagNats already owns on the conventional port.

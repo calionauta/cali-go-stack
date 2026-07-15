@@ -12,8 +12,8 @@ import (
 
 // InMemoryBroadcaster fans out todo updates via the SSE Hub's Broadcast
 // method. Suitable for single-instance deployments; for multi-instance
-// or multi-user collaboration build with `-tags jetstream`, which swaps
-// in the JetStream-backed broadcaster. Shared by both builds because the
+// or multi-user collaboration use the JetStream-backed broadcaster (wired
+// when NATS is enabled). Shared by both builds because the
 // JetStream variant falls back to it on setup errors.
 type InMemoryBroadcaster struct {
 	hub *queue.SSEHub

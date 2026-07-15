@@ -14,7 +14,7 @@
 - [What's in the package](#whats-in-the-package)
 - [Stack in layers, not silos](#stack-in-layers-not-silos)
 - [Feature overview](#feature-overview)
-- [Architecture taxonomy: Core / Pluggable / Feature](#architecture-taxonomy-core--pluggable--feature)
+- [Architecture taxonomy: Core / Plugin / Feature](#architecture-taxonomy-core--plugin--feature)
 - [Code quality for LLM agents](#code-quality-for-llm-agents)
 - [The example: Todo App with realtime](#the-example-todo-app-with-realtime)
 - [Adding your own feature](#adding-your-own-feature)
@@ -66,7 +66,7 @@ Everything you need to build a modern web app, in a single binary:
 | **Linting** | [golangci-lint](https://golangci-lint.run) + [datastar-lint](https://github.com/calionauta/datastar-lint) | 27 linters: `govet`, `staticcheck`, `gosec`, `revive`, `gocritic`, `errcheck`, `ineffassign`, `unused`, `errorlint`, `nilerr`, `bodyclose`, `contextcheck`, `containedctx`, `sloglint`, `thelper`, `testifylint`, `gocyclo`, `gocognit`, `funlen`, `noctx`, `goconst`, `dupl`, `lll`, `mnd`, `tagliatelle`, `modernize`, `nolintlint` (see `.golangci.yml`); `datastar-lint` catches Datastar attribute/signal/expression mistakes (run via `make datastar-lint`) |
 | **CI/CD** | GitHub Actions | `ci.yml` (lint + test + build, unified build) + `deploy.yml` (multi-arch Docker to ghcr.io, runs on `master`) |
 
-> **Why `ncruces/go-sqlite3`?** It's the pure-Go (no cgo) SQLite engine this template standardizes on. The build uses `-tags no_default_driver` to drop `modernc.org/sqlite`, so ncruces is what actually powers every query — and being cgo-free means clean cross-compilation for the multi-arch Docker image (linux/amd64 + arm64) and the Wails desktop/mobile builds. That's why `db/pocketbase.go` registers its driver init.
+> **Why `ncruces/go-sqlite3`?** It's the pure-Go (no cgo) SQLite engine this template standardizes on and the always-on driver — `db/pocketbase.go` registers it as the `sqlite3` database/sql driver that every query uses. PocketBase also bundles `modernc.org/sqlite`, but that registers itself as `sqlite` and stays unused, so **no build tag is required** and a plain `go build` just works. Being cgo-free means clean cross-compilation for the multi-arch Docker image (linux/amd64 + arm64) and the Wails desktop/mobile builds.
 
 ## Stack in layers, not silos
 
@@ -93,7 +93,7 @@ JetStream    → multi-instance broadcast + cross-instance state (runtime opt-ou
 
 **The opt-out rules are simple:**
 - **Infrastructure components** (NATS, DagNats) have runtime env vars in `config/config.go`. Set `NATS_ENABLED=false` or `DAGNATS_ENABLED=false` and the engine won't boot; downstream consumers handle nil gracefully.
-- **Product features** (Todo, Whiteboard) have no runtime flag. To remove them, delete the package directory and remove the wiring call from `router/router.go` — that's the SCOPE removal pattern. See [Architecture taxonomy](#architecture-taxonomy-core--pluggable--feature).
+- **Product features** (Todo, Whiteboard) have no runtime flag. To remove them, delete the package directory and remove the wiring call from `router/router.go` — that's the SCOPE removal pattern. See [Architecture taxonomy](#architecture-taxonomy-core--plugin--feature).
 
 They coexist in the same binary. They don't compete.
 
@@ -118,24 +118,24 @@ Every capability is always compiled. What you get:
 
 > **Adding a new feature?** Create `features/<name>/` with your handlers + templates. Wire it in `router/router.go` → `Init()` with a single function call. See `ARCHITECTURE.md` for the full pattern.
 
-## Architecture taxonomy: Core / Pluggable / Feature
+## Architecture taxonomy: Core / Plugin / Feature
 
 Every file in the codebase carries a `SCOPE` annotation at the top to tell agents and developers what can be safely removed:
 
 | Annotation | Meaning | Examples | You would… |
 |------------|---------|----------|------------|
 | `SCOPE:core` 🔴 | Binary does not work without it. Some have runtime opt-out via env vars. | `config/`, `db/`, `internal/queue/`, `internal/secrets/`, `features/auth/` (middleware), `router/`, `web/resources/` | Customize, never remove. |
-| `SCOPE:pluggable` 🟡 | Binary works but loses a capability. Swap or delete with its wiring call. | `internal/datastar/`, `internal/nats/`, `internal/dagnats/`, `internal/llm/`, `internal/collab/` | Swap for another implementation, or delete the package + wiring call (e.g. `router.Init`, `cmd/web/main.go`). |
+| `SCOPE:plugin` 🟡 | Binary works but loses a capability. Swap or delete with its wiring call. | `internal/datastar/`, `internal/nats/`, `internal/dagnats/`, `internal/llm/`, `internal/collab/` | Swap for another implementation, or delete the package + wiring call (e.g. `router.Init`, `cmd/web/main.go`). |
 | `SCOPE:feature` 🟢 | A demo/add-on. Delete the package + remove the wiring call. | `features/todo/`, `features/whiteboard/`, `router/onboarding_dagnats.go`, `router/realtime_jet.go` | Keep as reference while building your own, then remove. |
 
 **Rule of thumb for agents:** If you see a `SCOPE` annotation on a file, respect it. Never delete a `SCOPE:core` file without asking. Never keep a `SCOPE:feature` file in production if the domain doesn't need it.
 
-### How to remove a pluggable or feature component
+### How to remove a plugin or feature component
 
 1. Delete the package directory (e.g. `features/todo/`).
 2. Delete dependent packages listed in the `Depends on:` comment.
 3. Remove the wiring call from `router/router.go` → `Init()`.
-4. If it was pluggable, also remove the `start*` call in `cmd/web/main.go`.
+4. If it was plugin, also remove the `start*` call in `cmd/web/main.go`.
 
 See `ARCHITECTURE.md` for the full dependency graph.
 
@@ -483,15 +483,15 @@ internal/
     workers.go                    🔴 CORE  worker pool with context cancellation
     retry.go                      🔴 CORE  exponential backoff + jitter (retry-go v4)
     handlers.go                   🔴 CORE  HandlerRegistry: job-type to handler dispatch
-  datastar/                       🟡 PLUGGABLE  Datastar SSE rendering helpers
-  nats/                           🟡 PLUGGABLE  NATS JetStream + embedded server
-  dagnats/                        🟡 PLUGGABLE  DagNats durable workflow client
-  llm/                            🟡 PLUGGABLE  GoAI LLM SDK helpers
-  collab/                         🟡 PLUGGABLE  Loro CRDT + DocStore + sync workers + presence
+  datastar/                       🟡 PLUGIN  Datastar SSE rendering helpers
+  nats/                           🟡 PLUGIN  NATS JetStream + embedded server
+  dagnats/                        🟡 PLUGIN  DagNats durable workflow client
+  llm/                            🟡 PLUGIN  GoAI LLM SDK helpers
+  collab/                         🟡 PLUGIN  Loro CRDT + DocStore + sync workers + presence
 features/
   app/                            🔴 CORE  AppContext (cross-cutting deps bundle)
   auth/                           🔴 CORE  Login/logout/cookie (UI) + 🔴 middleware
-  store/                          🟡 PLUGGABLE  EntityStore interface (PB + CRDT strategies)
+  store/                          🟡 PLUGIN  EntityStore interface (PB + CRDT strategies)
   todo/                           🟢 FEATURE  Todo MVC example (keep as reference)
     handlers/                       HTTP + SSE handlers, onboarding
     components/                     Templ components

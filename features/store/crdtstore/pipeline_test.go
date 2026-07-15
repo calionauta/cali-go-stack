@@ -1,4 +1,4 @@
-// SCOPE:pluggable - E2E test for the cross-instance doc-version-bumped
+// SCOPE:plugin - E2E test for the cross-instance doc-version-bumped
 // pipeline. This is the definitive Phase 2+3 path:
 //
 //  1. Two CRDTStores share one JetStream.

@@ -1,4 +1,4 @@
-// SCOPE:pluggable - REMOVE if you don't need idempotent offline replay.
+// SCOPE:plugin - REMOVE if you don't need idempotent offline replay.
 //
 // Adds the (idem_key, owner) field + unique index to a collection so
 // the OnRecordCreateRequest hook in db/idempotency_hook.go can dedup

@@ -1,6 +1,6 @@
 package crdtstore
 
-// SCOPE:pluggable - REMOVE if you don't need CRDT-backed collaborative storage.
+// SCOPE:plugin - REMOVE if you don't need CRDT-backed collaborative storage.
 //
 // CRDTStore is the second EntityStore strategy: it persists each owner's
 // todos in a single Loro CRDT document and snapshots the resolved state
@@ -22,7 +22,7 @@ package crdtstore
 //
 // MVP scope (v0.20.0): per-owner in-memory LoroDoc + PB snapshot
 // persistence + a single-process lock. Cross-instance JetStream op
-// transport is a follow-up (see docs/decisions.md v0.20.0 ADR Phase 2).
+// transport is a follow-up (see ARCHITECTURE.md, Phase 2).
 //
 // Why the in-house Loro wrapper duplicates a little of
 // internal/collab/collab.go: the collab.Doc is whiteboard-specific

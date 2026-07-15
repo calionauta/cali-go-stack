@@ -39,7 +39,7 @@ Skills: `cali-coding-go-standards` (code quality), `cali-code-navigation` (cymba
 
 - NO HTMX/Alpine — use Datastar. NO `fmt.Sprintf` for HTML — use Templ.
 - NO raw CSS class when a DaisyUI component exists. NO `log` — use `log/slog`.
-- NO `modernc.org/sqlite` (driver is ncruces/go-sqlite3). NO removing goqite when adding JetStream; they solve different problems.
+- Driver is `ncruces/go-sqlite3` — never switch to PocketBase's bundled modernc as the active driver. (modernc is still pulled in by PocketBase but registers `sqlite` and stays unused; ncruces registers `sqlite3` and is what every query uses.) NO removing goqite when adding JetStream; they solve different problems.
 - NO manual `id` on PocketBase records (PK Max=15, `^[a-z0-9]+$`).
 - NO Datastar `PatchElements` whose top-level element lacks `id` + `WithSelector` (client throws `PatchElementsNoTargetsFound`). Use `internal/datastar.RenderAndPatch` paired with a selector.
 - NO real LLM in tests — inject a stub (`internal/llm/fakeserver` only inside `internal/llm/`).
@@ -52,16 +52,16 @@ Every source file carries a `SCOPE` comment at the top showing its removal risk.
 | Annotation | Meaning | You would… |
 |------------|---------|------------|
 | `SCOPE:core` 🔴 | Binary does not work without it. | Customize, never remove. |
-| `SCOPE:pluggable` 🟡 | Binary works but loses capability. Has removal instructions. | Swap or delete with wiring call. |
+| `SCOPE:plugin` 🟡 | Binary works but loses capability. Has removal instructions. | Swap or delete with wiring call. |
 | `SCOPE:feature` 🟢 | A demo/add-on. Has removal instructions and dependency notes. | Delete package + wiring call. |
 
-**Agent rule:** When the user asks to trim the project, never delete a `SCOPE:core` file — always ask first. Delete `SCOPE:feature` and `SCOPE:pluggable` files freely, following their "Remove by" comments.
+**Agent rule:** When the user asks to trim the project, never delete a `SCOPE:core` file — always ask first. Delete `SCOPE:feature` and `SCOPE:plugin` files freely, following their "Remove by" comments.
 
 ## Testing discipline (learned the hard way)
 
-Lessons from v0.18.0 (offline-add + CI flake). Full post-mortem: `docs/decisions.md`.
+Lessons from v0.18.0 (offline-add + CI flake) — see CHANGELOG.md.
 
-- **Build tags ≠ test tags.** `Makefile`'s `$(TAGS)` (e.g. `no_default_driver`) is for the shipped binary. Tests that bootstrap PocketBase with `app.Bootstrap()` need a `DBConnect` when that tag is set; our tests rely on the default modernc driver, so `go test` recipes must NOT inherit `$(TAGS)`. Result of forgetting this: `Bootstrap` panics with `DBConnect config option must be set when the no_default_driver tag is used!` — easy to misread as a flake.
+- **One unified build, no feature build tags.** `go build ./cmd/web` (or `make build`) compiles everything with no `-tags`. `ncruces/go-sqlite3` is the always-on driver (registered as `sqlite3`); PocketBase also bundles `modernc.org/sqlite` but it registers `sqlite` and stays unused, so tests need no special tag. Tests bootstrap PocketBase via `app.Bootstrap()` with our `DBConnect` (ncruces `sqlite3`) and just run — no `Bootstrap` panic, no tag matrix to forget.
 - **Avoid package-level mutable globals.** `var NS/NC/JS *Foo` set by `StartX()` and torn down by `Stop()` leak across `-p 1` packages when `Stop` doesn't nil them. Either nil on entry/exit or, better, return a struct. See `internal/nats/embedded.go` for the belt-and-suspenders nil-out.
 - **Pre-commit MUST rebuild `.templ` AND CSS.** Editing a `.templ` without `make templ && make css` leaves `web/resources/static/app.min.css` stale. `css-check` passes by inertia when nobody rebuilt, masking the staleness until a real diff appears.
 - **Three-tier feedback loop (replaces the single-tier "make check" rule).** See `## Feedback loop` below for the full breakdown. Short version: `make build` during dev, `make ci-local` pre-commit, **never run `make test` locally** — the remote CI is the test runner.
@@ -195,14 +195,14 @@ db/                      🔴 CORE  PocketBase + collection seeds
 internal/
   secrets/               🔴 CORE  age-decrypted env loader
   queue/                 🔴 CORE  goqite + SSE Hub + workers + retry + handler registry
-  datastar/              🟡 PLUGGABLE  Datastar rendering helpers
-  nats/                  🟡 PLUGGABLE  NATS JetStream + embedded server
-  dagnats/               🟡 PLUGGABLE  DagNats durable workflow client
-  llm/                   🟡 PLUGGABLE  GoAI LLM client
-  collab/                🟡 PLUGGABLE  Loro CRDT + DocStore + sync workers
-  components/             🟡 PLUGGABLE  Shared UI helpers (Toast + OfflineBanner)
+  datastar/              🟡 PLUGIN  Datastar rendering helpers
+  nats/                  🟡 PLUGIN  NATS JetStream + embedded server
+  dagnats/               🟡 PLUGIN  DagNats durable workflow client
+  llm/                   🟡 PLUGIN  GoAI LLM client
+  collab/                🟡 PLUGIN  Loro CRDT + DocStore + sync workers
+  components/             🟡 PLUGIN  Shared UI helpers (Toast + OfflineBanner)
 features/
-  store/                 🟡 PLUGGABLE  EntityStore interface (PB + CRDT strategies)
+  store/                 🟡 PLUGIN  EntityStore interface (PB + CRDT strategies)
   auth/                  🔴/🟢 CORE (middleware) / FEATURE (UI)
   app/                   🔴 CORE  AppContext (cross-cutting deps bundle)
   todo/                  🟢 FEATURE  Todo MVC example (keep as reference, remove when done)
@@ -213,7 +213,7 @@ router/                  🔴 CORE  Route wiring
 
 **Three complementary async layers:** `goqite` (jobs+SSE) · `dagnats` (durable workflows) · `JetStream` (cross-instance realtime). They coexist in the same binary; all three are always compiled.
 
-**Routing (read before touching `router.Init`):** PocketBase `RouterGroup` compiles to stdlib `http.ServeMux` (Go 1.22+ subtree matching — `GET /` swallows unregistered subpaths). Register all routes DIRECTLY on `se.Router` inside the OnServe hook (nested `OnServe().BindFunc` never fires). App cookie is `gogogo_auth` (NOT `pb_auth`) — the two cookies are intentional: PocketBase keeps admin (`_superusers`) and regular users as SEPARATE auth namespaces, so sharing `pb_auth` clobbers the admin session in the same browser (known PB gotcha, issues #5050/#1780). Run the admin UI on a separate origin/port (`:8090/_/`) so even `pb_auth` never collides. Serve static assets via EXACT `/static/<file>` routes (PB catch-all shadows wildcards). Full routing war-stories: `docs/decisions.md`.
+**Routing (read before touching `router.Init`):** PocketBase `RouterGroup` compiles to stdlib `http.ServeMux` (Go 1.22+ subtree matching — `GET /` swallows unregistered subpaths). Register all routes DIRECTLY on `se.Router` inside the OnServe hook (nested `OnServe().BindFunc` never fires). App cookie is `gogogo_auth` (NOT `pb_auth`) — the two cookies are intentional: PocketBase keeps admin (`_superusers`) and regular users as SEPARATE auth namespaces, so sharing `pb_auth` clobbers the admin session in the same browser (known PB gotcha, issues #5050/#1780). Run the admin UI on a separate origin/port (`:8090/_/`) so even `pb_auth` never collides. Serve static assets via EXACT `/static/<file>` routes (PB catch-all shadows wildcards). Full routing war-stories: see `ARCHITECTURE.md`.
 
 ## Realtime transport decision
 
@@ -267,18 +267,18 @@ ALL HTML UI uses DaisyUI components (read https://daisyui.com/llms.txt). Load `/
 
 ## Removing features & tests by SCOPE
 
-When you remove a feature or pluggable component, tests come along naturally:
+When you remove a feature or plugin component, tests come along naturally:
 
 | If you remove… | Delete these packages | These test files go with them automatically |
 |----------------|----------------------|----------------------------------------------|
 | **Todo** (feature) | `features/todo/` | `features/todo/*_test.go` ✅ |
 | **Whiteboard** (feature) | `features/whiteboard/` (including its `static/` subdir), `internal/collab/` | `features/whiteboard/*_test.go`, `internal/collab/*_test.go` ✅ |
-| **DagNats** (pluggable) | `internal/dagnats/`, `router/onboarding_dagnats.go` | `internal/dagnats/*_test.go`, `features/todo/onboarding_e2e_test.go` ⚠️ check cross-package deps |
-| **NATS** (pluggable) | `internal/nats/` | `internal/nats/*_test.go`, `internal/collab/*_test.go` ⚠️ collab may depend on NATS |
+| **DagNats** (plugin) | `internal/dagnats/`, `router/onboarding_dagnats.go` | `internal/dagnats/*_test.go`, `features/todo/onboarding_e2e_test.go` ⚠️ check cross-package deps |
+| **NATS** (plugin) | `internal/nats/` | `internal/nats/*_test.go`, `internal/collab/*_test.go` ⚠️ collab may depend on NATS |
 | **OfflineSync** (opt-out) | `config/config.go` (+ `sw.js`) | `internal/nats/crudproxy_test.go` ✅ (covers create/toggle/delete/clear_completed e2e with JetStream). Remove `sw.js` + SW registration from templ files + delete crudproxy.go |
-| **LLM** (pluggable) | `internal/llm/` | `internal/llm/*_test.go`, `features/todo/suggest_test.go` ⚠️ |
-| **EntityStore** (pluggable) | `features/store/pbstore/` | `features/store/pbstore/*_test.go` (future). Drop `todoH.SetStore(pbstore.New(app, "todos"))` from `router.Init`; the handler's lazy fallback (`h.st()` in `todo_repo.go`) will rebuild a PBStore on first use. Remove `features/store/pbstore/` to use a different strategy (e.g. the future CRDTStore). |
-| **Idempotency** (pluggable) | `db/idempotency_hook.go` + `db/idempotency_seed.go` | `db/idempotency_hook_test.go` ✅. Remove both files, drop `RegisterIdempotencyHook(app)` and `enableTodosIdempotency(col)` from `db/seed.go`, and remove the hidden `name="idem_key"` input from `createForm`. |
+| **LLM** (plugin) | `internal/llm/` | `internal/llm/*_test.go`, `features/todo/suggest_test.go` ⚠️ |
+| **EntityStore** (plugin) | `features/store/pbstore/` | `features/store/pbstore/*_test.go` (future). Drop `todoH.SetStore(pbstore.New(app, "todos"))` from `router.Init`; the handler's lazy fallback (`h.st()` in `todo_repo.go`) will rebuild a PBStore on first use. Remove `features/store/pbstore/` to use a different strategy (e.g. the future CRDTStore). |
+| **Idempotency** (plugin) | `db/idempotency_hook.go` + `db/idempotency_seed.go` | `db/idempotency_hook_test.go` ✅. Remove both files, drop `RegisterIdempotencyHook(app)` and `enableTodosIdempotency(col)` from `db/seed.go`, and remove the hidden `name="idem_key"` input from `createForm`. |
 
 **Rule of thumb:** `go test ./...` after deleting a package. If a compilation error mentions the deleted package in a test file, delete that test file too. Cross-package tests (like `features/todo/onboarding_e2e_test.go` depending on `internal/dagnats`) will fail to compile — that's your checklist.
 

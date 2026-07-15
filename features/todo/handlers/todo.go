@@ -46,7 +46,8 @@ const (
 
 // TodoBroadcaster publishes todo mutations so every connected client
 // receives them in real time. It is defined in the nats package (two
-// implementations: in-memory default, JetStream with -tags jetstream).
+// implementations: in-memory default, JetStream when a JetStream context
+// is wired).
 // When nil, mutations are still visible to the originating client via
 // the per-request SSE patch but are NOT broadcast to others.
 type TodoBroadcaster = nats.TodoBroadcaster
@@ -55,7 +56,7 @@ type TodoBroadcaster = nats.TodoBroadcaster
 // the worker-side handlers for "retry_demo", "suggest", and
 // "suggest_simulated" jobs.
 type TodoHandler struct {
-	// store is the pluggable persistence layer. Wired by router.Init
+	// store is the plugin persistence layer. Wired by router.Init
 	// via SetStore. Defaults to a PBStore (features/store/pbstore) when
 	// config.EntityStore is "pb" (the only option today); future
 	// CRDTStore lands behind the same interface.
@@ -100,7 +101,8 @@ func (h *TodoHandler) SetLLMClient(c *llm.Client) { h.llm = c }
 func (h *TodoHandler) SetSimulatedLLMClient(c *llm.Client) { h.llmSimulated = c }
 
 // CreateTodoForOnboarding programmatically creates a todo. Used by the
-// DagNats onboarding worker handlers (build tag dagnats) to write example
+// DagNats onboarding worker handlers (always compiled; no-op when
+// DAGNATS_ENABLED=false) to write example
 // todos into the main PocketBase collection as the durable workflow
 // advances. owner scopes the todo to a user; pass "" for the unscoped
 // demo fallback. It reuses the same validation/save path as the HTTP
@@ -132,7 +134,7 @@ func (h *TodoHandler) SetBroadcaster(b TodoBroadcaster) {
 	h.broadcaster = b
 }
 
-// SetStore wires the pluggable persistence layer. Called by
+// SetStore wires the plugin persistence layer. Called by
 // router.Init; tests may wire a different store for isolation. The
 // PBStore from features/store/pbstore is the default; CRDTStore
 // (future) plugs in here without any change to this handler.
@@ -169,7 +171,7 @@ func (h *TodoHandler) RegisterRoutes(se *core.ServeEvent) {
 	// with a unique index, and `db/RegisterIdempotencyHook` installs an
 	// OnRecordCreateRequest hook that returns the original record on a
 	// matching key (within the same owner). See ARCHITECTURE.md
-	// "Offline strategy" + docs/decisions.md for the rationale.
+	// "Offline strategy" + ARCHITECTURE.md for the rationale.
 	se.Router.POST("/api/todos", h.handleCreate)
 	se.Router.POST("/api/todos/{id}/toggle", h.handleToggle)
 	se.Router.POST("/api/todos/completed/delete", h.handleClearCompleted)

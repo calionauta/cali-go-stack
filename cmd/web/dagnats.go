@@ -23,9 +23,9 @@ var dagNatsServer *server.Server
 // the main PocketBase collection) and starts the engine.
 //
 // Single-NATS convention: DagNats owns the embedded NATS on the
-// conventional port 127.0.0.1:4222. When built with -tags "jetstream
-// dagnats", the realtime broadcaster (cmd/web/nats.go) connects to THIS
-// NATS instead of starting its own — one NATS server, two consumers
+// conventional port 127.0.0.1:4222. When NATS is enabled, the realtime
+// broadcaster (cmd/web/nats.go) connects to THIS NATS instead of starting
+// its own — one NATS server, two consumers
 // (DagNats workflows + JetStream realtime). startDagNats does NOT block:
 // it fires Run() in a goroutine and returns. The synchronization point
 // is ConnectExisting (called by startNATS right after), which uses

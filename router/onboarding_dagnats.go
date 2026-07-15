@@ -11,8 +11,8 @@ import (
 )
 
 // registerOnboarding wires the DagNats onboarding workflow into the
-// PocketBase router. Called from Init when the dagnats build tag is
-// active. The DagNats engine must already be running (started in
+// PocketBase router. Called from Init when DagNats is enabled at runtime
+// (DAGNATS_ENABLED=true). The DagNats engine must already be running (started in
 // cmd/web/dagnats.go) so the handler's client can reach its REST API.
 func registerOnboarding(
 	app *pocketbase.PocketBase,

@@ -1,6 +1,6 @@
 package crdtstore
 
-// SCOPE:pluggable - REMOVE if you don't need cross-instance CRDT sync.
+// SCOPE:plugin - REMOVE if you don't need cross-instance CRDT sync.
 //
 // CRDTStore Phase 2: JetStream op transport. Without this file, the
 // CRDTStore works in single-process mode (the doc lives in memory and
