@@ -114,6 +114,8 @@ For features that need **conflict-free offline editing** (not just offline queui
 
 The **whiteboard already uses Loro CRDT**. For the **todo feature**, SW + Background Sync is the implemented path — `web/resources/static/sw.js` intercepts `/api/*` mutations, queues them in IndexedDB, and replays them via Background Sync on reconnect; the shared **`OfflineBanner`** (`internal/components/`) surfaces the offline/syncing/online state to the user. This preserves PocketBase realtime while keeping the KISS offline-queue option.
 
+**Replay dedup (`db/idempotency_hook.go` + `db/seed.go`, SCOPE:pluggable).** PocketBase generates record IDs server-side, so a naive replay of a queued POST creates a duplicate. The fix: `createForm` sends a fresh `idem_key` UUID in the form body, and `OnRecordCreateRequest` (`RegisterIdempotencyHook`) on the `todos` collection looks up an existing record with the same `(idem_key, owner)` and returns it in place of the inbound create. A unique index on `(idem_key, owner)` (added by `ensureTodosCollection`) catches the race when two concurrent requests reach the DB before the hook check completes. UPDATE/DELETE handlers are not covered: toggles are naturally idempotent (two flips cancel out), and delete-on-already-deleted is a benign 404. Onboarding start (DagNats workflow trigger) accepts a small duplicate-cost on replay — the second run creates a second set of example todos, but the durable workflow tracks them as separate runs.
+
 ---
 
 ### The three async layers — how they compose

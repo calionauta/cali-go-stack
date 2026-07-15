@@ -386,7 +386,7 @@ func createForm(signals todo.Signals) templ.Component {
 			templ_7745c5c3_Var18 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<form class=\"join w-full mb-4\" data-on:submit__prevent=\"if (!$loading) { $loading = true; @post('/api/todos?clientID=' + encodeURIComponent($clientID || ''), {contentType: 'form'}); }\"><input type=\"text\" name=\"title\" class=\"input join-item flex-1 input-sm sm:input-md\" placeholder=\"Add a new todo...\" data-bind=\"newTitle\"> <button type=\"submit\" class=\"btn btn-primary join-item btn-sm sm:btn-md\" data-attr:disabled=\"$loading || !$newTitle.trim()\"><span class=\"inline-flex items-center gap-2\"><span class=\"hidden sm:inline\">Add</span> <svg xmlns=\"http://www.w3.org/2000/svg\" class=\"h-4 w-4 sm:hidden\" viewBox=\"0 0 20 20\" fill=\"currentColor\"><path fill-rule=\"evenodd\" d=\"M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z\" clip-rule=\"evenodd\"></path></svg> <span class=\"loading loading-spinner loading-xs\" data-show=\"$loading\"></span></span></button></form>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<form class=\"join w-full mb-4\" data-on:submit__prevent=\"if (!$loading) { $loading = true; $idemKey = crypto.randomUUID(); @post('/api/todos?clientID=' + encodeURIComponent($clientID || ''), {contentType: 'form'}); }\"><input type=\"hidden\" name=\"idem_key\" data-bind=\"idemKey\"> <input type=\"text\" name=\"title\" class=\"input join-item flex-1 input-sm sm:input-md\" placeholder=\"Add a new todo...\" data-bind=\"newTitle\"> <button type=\"submit\" class=\"btn btn-primary join-item btn-sm sm:btn-md\" data-attr:disabled=\"$loading || !$newTitle.trim()\"><span class=\"inline-flex items-center gap-2\"><span class=\"hidden sm:inline\">Add</span> <svg xmlns=\"http://www.w3.org/2000/svg\" class=\"h-4 w-4 sm:hidden\" viewBox=\"0 0 20 20\" fill=\"currentColor\"><path fill-rule=\"evenodd\" d=\"M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z\" clip-rule=\"evenodd\"></path></svg> <span class=\"loading loading-spinner loading-xs\" data-show=\"$loading\"></span></span></button></form>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -475,7 +475,7 @@ func filterTab(label, value, endpoint string) templ.Component {
 		var templ_7745c5c3_Var21 string
 		templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.ResolveAttributeValue("{ 'tab-active': $filter === '" + value + "' }")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/todo/components/todo_list.templ`, Line: 450, Col: 62}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/todo/components/todo_list.templ`, Line: 455, Col: 62}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var21)
 		if templ_7745c5c3_Err != nil {
@@ -488,7 +488,7 @@ func filterTab(label, value, endpoint string) templ.Component {
 		var templ_7745c5c3_Var22 string
 		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.ResolveAttributeValue("$loading = true; @get('" + endpoint + "')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/todo/components/todo_list.templ`, Line: 451, Col: 70}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/todo/components/todo_list.templ`, Line: 456, Col: 70}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var22)
 		if templ_7745c5c3_Err != nil {
@@ -501,7 +501,7 @@ func filterTab(label, value, endpoint string) templ.Component {
 		var templ_7745c5c3_Var23 string
 		templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/todo/components/todo_list.templ`, Line: 453, Col: 9}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/todo/components/todo_list.templ`, Line: 458, Col: 9}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 		if templ_7745c5c3_Err != nil {
@@ -604,7 +604,7 @@ func SuggestionsList(suggestions []string) templ.Component {
 			var templ_7745c5c3_Var26 string
 			templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.ResolveAttributeValue("$newTitle = " + safeJSString(s))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/todo/components/todo_list.templ`, Line: 503, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/todo/components/todo_list.templ`, Line: 508, Col: 53}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var26)
 			if templ_7745c5c3_Err != nil {
@@ -617,7 +617,7 @@ func SuggestionsList(suggestions []string) templ.Component {
 			var templ_7745c5c3_Var27 string
 			templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(s)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/todo/components/todo_list.templ`, Line: 505, Col: 8}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `features/todo/components/todo_list.templ`, Line: 510, Col: 8}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 			if templ_7745c5c3_Err != nil {

@@ -149,6 +149,12 @@ func (h *TodoHandler) RegisterRoutes(se *core.ServeEvent) {
 	se.Router.GET("/", h.handleIndex)
 	se.Router.GET("/api/todos", h.handleList)
 	se.Router.GET("/api/todos/fragment", h.handleListFragment)
+	// POST routes pass through unchanged. Replay dedup happens at the
+	// collection level: the `todos` collection has an `idem_key` field
+	// with a unique index, and `db/RegisterIdempotencyHook` installs an
+	// OnRecordCreateRequest hook that returns the original record on a
+	// matching key (within the same owner). See ARCHITECTURE.md
+	// "Offline strategy" + docs/decisions.md for the rationale.
 	se.Router.POST("/api/todos", h.handleCreate)
 	se.Router.POST("/api/todos/{id}/toggle", h.handleToggle)
 	se.Router.POST("/api/todos/completed/delete", h.handleClearCompleted)

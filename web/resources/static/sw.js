@@ -11,10 +11,15 @@
 // Whiteboard endpoints are also skipped (they have their own Loro-based
 // offline mechanism via IndexedDB outbox in whiteboard.js).
 //
-// Idempotency: PocketBase generates record IDs server-side, so a replayed
-// POST creates a NEW record (it is NOT a retry of the original). This is
-// acceptable for the demo; production uses would need a client-generated
-// UUID (idempotency key) in the request body to detect duplicates.
+// Idempotency: the UI generates a fresh UUID per click and sends it
+// as the `idem_key` form field on every create POST. The SW forwards
+// the form body verbatim on replay. The server-side hook
+// (db.RegisterIdempotencyHook) looks up an existing record with the
+// same (idem_key, owner) and returns it instead of creating a
+// duplicate; a (idem_key, owner) unique index in PocketBase backs the
+// dedup at the DB layer for the race window. Single-instance and
+// multi-instance both work because the dedup state lives in the
+// database. See docs/decisions.md for the full rationale.
 
 var CACHE_NAME = "pb-api-v1";
 var API_PREFIX = "/api/";

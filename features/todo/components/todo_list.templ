@@ -401,8 +401,13 @@ templ TodoList(signals todo.Signals) {
 templ createForm(signals todo.Signals) {
 	<form
 		class="join w-full mb-4"
-		data-on:submit__prevent="if (!$loading) { $loading = true; @post('/api/todos?clientID=' + encodeURIComponent($clientID || ''), {contentType: 'form'}); }"
+		data-on:submit__prevent="if (!$loading) { $loading = true; $idemKey = crypto.randomUUID(); @post('/api/todos?clientID=' + encodeURIComponent($clientID || ''), {contentType: 'form'}); }"
 	>
+		<input
+			type="hidden"
+			name="idem_key"
+			data-bind="idemKey"
+		/>
 		<input
 			type="text"
 			name="title"

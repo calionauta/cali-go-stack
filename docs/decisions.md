@@ -105,3 +105,61 @@ Three issues shipped together in v0.18.0 (`4741055`). Each taught a separate les
 3. **The cheapest "is the fix live?" test is a byte diff of an embedded asset.** `diff <(curl /static/<asset>) <(repo <asset>)` — if it matches, the running binary embeds the latest source. Took seconds to confirm v0.17.0 was deployed.
 4. **Stale committed artifacts (CSS, generated files) can pass CI by inertia** when no rebuild is triggered. Make the rebuild part of the change that introduces the source drift, or have a guard that fails when generated files are older than their sources.
 5. **Locality of behavior for the bridge, declarative for the consumer.** The OfflineBanner script stays inline (SW postMessage isn't reachable from Datastar expressions); the consumer side (`data-on:gogogo:queued__window`) is pure Datastar. No per-form glue code; future features inherit the fix by mounting the banner.
+
+## v0.19.0 — Idempotent offline replay (PocketBase hook + unique index)
+
+Reformulated from v0.18.0's middleware approach (which broke SSE handlers — the bufWriter didn't implement `http.Flusher`, so `sdk.NewSSE`'s `rc.Flush()` panicked). Replaced with PocketBase-native dedup.
+
+### Why
+
+PocketBase generates record IDs server-side. A Service Worker that replays a queued POST after reconnect creates a *new* record instead of returning the original. Documented in `sw.js` since v0.18.0 as "production would need a client-generated UUID."
+
+### The fix
+
+`db/seed.go` adds an `idem_key` field (text, nullable, max 100) to the `todos` collection and a unique index `(idem_key, owner)`. `db/idempotency_hook.go` registers an `OnRecordCreateRequest` hook: if the inbound record carries a non-empty `idem_key` and an `owner`, it looks up an existing record with the same `(idem_key, owner)` and, on hit, replaces `e.Record` with the existing one and returns nil (PB treats a missing `e.Next()` as "handled" — no error, no create). The unique index is the safety net for the race: two concurrent requests racing the hook see the second one fail at the DB layer with `idem_key: Value must be unique`.
+
+The UI generates a fresh UUID per click (`crypto.randomUUID()`) and includes it in the form body via a hidden `<input name="idem_key">`. The SW forwards the form verbatim on replay.
+
+### Why this approach over the middleware
+
+- **Doesn't touch `core.RequestEvent`.** The bufWriter in the previous attempt intercepted the response writer; `sdk.NewSSE` calls `rc.Flush()` to start the stream and the wrap silently broke SSE. PB hooks run in the PB core layer (no ResponseWriter), so SSE is unaffected.
+- **DB-level dedup.** Permanent (survives restart), multi-instance safe (DB is source of truth). The in-memory LRU only worked single-instance and lost state on restart.
+- **PocketBase-native.** The hook pattern is documented officially and is the standard extension point for the framework. The in-memory LRU approach taught nothing reusable.
+- **Covered by Stack Overflow + PB docs.** Multiple threads (#545, #2593, PB docs JS Event Hooks) recommend unique-index + hook for dedup. The pattern is known.
+
+### Why only CREATE
+
+The user originally asked for "all handlers" to be wrapped, but the natural idempotency profile differs per mutation:
+
+| Handler | Replay dedup needed? | Why |
+|---|---|---|
+| `POST /api/todos` (create) | YES — hook + index | Naive replay creates a visible duplicate. |
+| `POST /api/todos/{id}/toggle` | NO — naturally idempotent | Two flips cancel; final state identical. |
+| `POST /api/todos/{id}/delete` | NO — naturally idempotent | Second delete is a benign 404. |
+| `POST /api/todos/completed/delete` | NO | Same: empty result on second call. |
+| `POST /api/todos/suggest` | Minor | Replay enqueues a second LLM call. Cost ~1s, not user-visible. |
+| `POST /api/onboarding/start` | Minor | Replay starts a second workflow run → 3 more example todos. Acceptable for a demo. |
+
+Only CREATE has a user-visible bug on replay. The hook + index covers it.
+
+### Files
+
+- `db/seed.go` — adds `idem_key` field + `(idem_key, owner)` unique index to the `todos` collection. Idempotent (only adds if missing).
+- `db/idempotency_hook.go` — `RegisterIdempotencyHook(app)` installs the `OnRecordCreateRequest` hook. Called once from `SeedDefaults` (outside `OnServe`, so it survives every serve start without re-binding).
+- `db/idempotency_hook_test.go` — E2E test for the (idem_key, owner) unique index. The PB request hook is exercised end-to-end by the live site's manual offline-replay test (direct `app.Save` bypasses HTTP hooks — that's PB's design).
+- `features/todo/components/todo_list.templ` — `createForm` includes a hidden `<input name="idem_key" data-bind="idemKey">` and sets `$idemKey = crypto.randomUUID()` before posting. Other forms reverted to plain `@post(...)`.
+- `web/resources/static/sw.js` — comment updated; production caveat removed.
+- `ARCHITECTURE.md` — offline strategy documents the hook approach + per-handler natural-idempotency analysis.
+- `AGENTS.md` — SCOPE table + removal instructions updated.
+
+### Why not also handle UPDATE/DELETE with hooks?
+
+`OnRecordUpdateRequest` and `OnRecordDeleteRequest` exist and could similarly dedup by idem_key. But the value-to-effort ratio is poor: toggle 2× is naturally idempotent, delete 2× is a benign 404. Adding two more hooks + body field plumbing to handle a non-bug is YAGNI. If a future feature mutation is *not* naturally idempotent (e.g. incrementing a counter), the same hook pattern applies.
+
+### Why not NATS JetStream MsgId?
+
+JetStream's `Nats-Msg-Id` header dedup is built-in but operates at the **publish→consume** boundary inside JetStream, not at the HTTP→PocketBase boundary where this bug lives. The CrudPublisher runs *after* the handler creates the record, so JetStream can't intercept the duplicate at insert time. JetStream MsgId would be the right place to dedup if the entire CRUD path went through JetStream (no direct HTTP to PocketBase) — that's a bigger architecture shift, out of scope for this fix.
+
+### Why not a Go library?
+
+Surveyed 5 active 2026 libs (`eben-vranken/idempo`, `polanski13/idemkit`, `velmie/idempo`, `fco-gt/gopotency`, `bright-room/idem`). None integrate with PocketBase's request hook signature; all require Redis or Postgres as a separate store; stars 0-11 (bus-factor risk). The PB hook approach uses the existing SQLite (no extra infra), is the documented extension pattern, and survives multi-instance.
