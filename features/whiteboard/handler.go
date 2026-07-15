@@ -196,7 +196,7 @@ func (h *Handler) handleBoard(c *core.RequestEvent) error {
 	if snap, ok := h.worker.LoadSnapshot(docID); ok {
 		slog.Info("whiteboard: rehydrated doc", "doc", docID, "bytes", len(snap))
 	}
-	if err := renderBoard(c, email, docID, h.cfg.BuildLabel, h.cfg.BuildCommit); err != nil {
+	if err := renderBoard(c, email, docID, h.cfg.BuildLabel, h.cfg.BuildCommit, h.cfg.OfflineSync.Enabled); err != nil {
 		return err
 	}
 	return nil
@@ -475,7 +475,7 @@ func renderBoardList(c *core.RequestEvent, email string, boards []BoardMeta, bui
 }
 
 // renderBoard writes the interactive board page.
-func renderBoard(c *core.RequestEvent, email, docID, buildLabel, buildCommit string) error {
+func renderBoard(c *core.RequestEvent, email, docID, buildLabel, buildCommit string, offlineSync bool) error {
 	c.Response.Header().Set("Content-Type", "text/html; charset=utf-8")
-	return Board(email, docID, buildLabel, buildCommit).Render(c.Request.Context(), c.Response)
+	return Board(email, docID, buildLabel, buildCommit, offlineSync).Render(c.Request.Context(), c.Response)
 }

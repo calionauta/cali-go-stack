@@ -57,7 +57,7 @@ func Run(cfg *config.Config, js nats.JetStreamLike) (
 	if initErr != nil {
 		return nil, nil, nil, nil, fmt.Errorf("PocketBase init: %w", initErr)
 	}
-	if seedErr := db.SeedDefaults(pb); seedErr != nil {
+	if seedErr := db.SeedDefaults(pb, cfg.OfflineSync.Enabled); seedErr != nil {
 		return nil, nil, nil, nil, fmt.Errorf("seed: %w", seedErr)
 	}
 

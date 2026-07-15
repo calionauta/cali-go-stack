@@ -102,7 +102,7 @@ func setupIdemTestApp(t *testing.T) (core.App, *core.Record, *core.Collection) {
 	t.Cleanup(func() { os.RemoveAll(tmpDir) })
 
 	app := newSeedTestApp(t, tmpDir)
-	if err := ensureTodosCollection(app); err != nil {
+	if err := ensureTodosCollection(app, true); err != nil {
 		t.Fatalf("ensureTodosCollection: %v", err)
 	}
 	if err := ensureDemoUser(app); err != nil {

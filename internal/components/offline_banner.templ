@@ -1,31 +1,30 @@
-// SCOPE:core - 3-state offline/syncing/online banner (matches Toast's role).
+// SCOPE:core - transport-state banner. Renders the sticky top banner that
+// reflects whether the client is online, replaying, or offline.
 //
-// Package components provides shared UI primitives. Toast handles ephemeral
-// task feedback; OfflineBanner handles transport-state feedback. Both are
-// SCOPE:core because transport state is observable on every page that calls
-// any networked endpoint, and removing it would silently mask a class of
-// user-visible bugs (queued mutations, replay failures).
+// Two modes, controlled by the offlineSync arg:
 //
-// Mount once per full-page Layout, just before the toast container. The
-// banner reflects the Service Worker's view of the network:
+//   - offlineSync=true  (default deployment, OFFLINE_SYNC_ENABLED unset)
+//       Three states: online (hidden), syncing (info), offline (warning,
+//       "changes are queued and will sync when you reconnect"). The SW
+//       posts {sync-start|sync-end|sync-error} messages that drive the
+//       state — see web/resources/static/sw.js.
 //
-//   - online    — Service Worker up-to-date, no queued requests
-//   - syncing   — Service Worker replaying queued mutations after reconnect
-//   - offline   — Browser is offline or replay failed; requests will queue
+//   - offlineSync=false (OFFLINE_SYNC_ENABLED=false)
+//       Two states: online (hidden), offline (warning, honest copy
+//       "online-only — requests will fail when network is down"). The
+//       SW message bridge is omitted entirely (no SW is registered in
+//       this mode, so the listener would never fire and would only
+//       produce dead code + console noise).
 //
-// The bridge lives in web/resources/static/sw.js, which posts {type:
-// "sync-start"|"sync-end"|"sync-error"} messages to clients. This component
-// owns the DOM and the visible state. SW owns the truth.
+// Both modes fall back to navigator.onLine for the coarse online /
+// offline signal, so users still see *something* on browsers / pages
+// where the SW did not register.
 package components
 
-// OfflineBanner renders the sticky top banner for transport state.
-//
-// The element is hidden by default (online). The inline script swaps
-// classes based on Service Worker postMessage events. CSS for the 3
-// states is colocated in <style> so the component is self-contained —
-// drop it in any Layout and it renders correctly without external CSS
-// setup beyond /static/app.min.css (DaisyUI tokens).
-templ OfflineBanner() {
+// OfflineBanner renders the sticky top banner for transport state. Pass
+// offlineSync=false to switch to honest online-only copy when the SW +
+// queue are disabled.
+templ OfflineBanner(offlineSync bool) {
 	<div
 		id="offline-banner"
 		class="hidden fixed top-0 left-0 right-0 z-[101] text-center text-xs py-1 px-2"
@@ -54,6 +53,8 @@ templ OfflineBanner() {
 			var text = document.getElementById("offline-banner-text");
 			if (!banner || !text) return;
 
+			var OFFLINE_SYNC = {offlineSync};
+
 			function setState(state) {
 				var cls = "is-" + state;
 				banner.classList.remove("is-online", "is-syncing", "is-offline");
@@ -62,12 +63,14 @@ templ OfflineBanner() {
 				text.textContent = state === "syncing"
 					? "Syncing changes\u2026"
 					: state === "offline"
-						? "Offline \u2014 changes are queued and will sync when you reconnect"
+						? (OFFLINE_SYNC
+							? "Offline \u2014 changes are queued and will sync when you reconnect"
+							: "Offline \u2014 online-only mode; requests will fail when network is down")
 						: "Online";
 			}
 
-			// SW postMessage bridge — see web/resources/static/sw.js.
-			if (navigator.serviceWorker) {
+			if (OFFLINE_SYNC && navigator.serviceWorker) {
+				// SW postMessage bridge — see web/resources/static/sw.js.
 				navigator.serviceWorker.addEventListener("message", function (e) {
 					var data = e.data || {};
 					if (data.type === "sync-start") setState("syncing");

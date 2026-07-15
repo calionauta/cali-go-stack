@@ -23,18 +23,32 @@ var (
 
 // SeedDefaults creates default collections and data on first run.
 //
+// Pass offlineSyncEnabled to wire (or skip) the offline-first idempotency
+// machinery. With offline-sync disabled:
+//
+//   - RegisterIdempotencyHook is NOT installed (no SW queue → no replays
+//     to dedupe; PB realtime alone keeps the UI live).
+//   - The (idem_key, owner) unique index is NOT created on the todos
+//     collection (the hook + index pair has no purpose without a queue).
+//
+// The idem_key FIELD is always added to todos regardless of the flag:
+// every Create POST sends it as a request-dedupe token, useful for
+// retry / double-click even when offline-sync is off.
+//
 // Collections are NOT auto-created by PocketBase on first access — that comment
 // was a lie. Each collection must be explicitly registered here so a fresh
 // `make dev` clone can create todos out of the box without hitting the admin
 // UI first.
-func SeedDefaults(app *pocketbase.PocketBase) error {
+func SeedDefaults(app *pocketbase.PocketBase, offlineSyncEnabled bool) error {
 	// Idempotency dedup hook for the todos collection (see
-	// idempotency_hook.go). Registered on the App directly, not inside
-	// OnServe, so it survives every serve start without re-binding.
-	RegisterIdempotencyHook(app)
+	// idempotency_hook.go). Only registered when offline-sync is on;
+	// without a queue replaying requests there are no duplicates to catch.
+	if offlineSyncEnabled {
+		RegisterIdempotencyHook(app)
+	}
 
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
-		if err := ensureTodosCollection(se.App); err != nil {
+		if err := ensureTodosCollection(se.App, offlineSyncEnabled); err != nil {
 			slog.Error("seed: ensureTodosCollection failed", "error", err)
 		}
 		if err := ensureDemoUser(se.App); err != nil {
@@ -61,7 +75,13 @@ func SeedDefaults(app *pocketbase.PocketBase) error {
 // backfills the owner relation on collections created by older seeds
 // that lacked it. Todos are scoped to a tenant via owner so the demo
 // user — and any authenticated user — only sees their own todos.
-func ensureTodosCollection(app core.App) error {
+//
+// The idem_key FIELD is always added (the request dedupe token has
+// uses outside of offline-sync). The (idem_key, owner) unique INDEX
+// is added only when offlineSyncEnabled — it pairs with the
+// RegisterIdempotencyHook to dedupe SW queue replays, which never
+// happen when offline-sync is off.
+func ensureTodosCollection(app core.App, offlineSyncEnabled bool) error {
 	col, err := app.FindCollectionByNameOrId("todos")
 	if err != nil {
 		col = core.NewBaseCollection("todos")
@@ -88,7 +108,14 @@ func ensureTodosCollection(app core.App) error {
 		slog.Info("seed: ensured todos.owner relation -> users")
 	}
 
-	enableTodosIdempotency(col)
+	// idem_key field is always added — the request dedupe token is
+	// useful outside of offline-sync (retry / double-click guard).
+	// The (idem_key, owner) unique index is the hook's dedupe target
+	// and only matters when offline-sync replays queued requests.
+	AddIdemKeyField(col)
+	if offlineSyncEnabled {
+		AddIdemKeyUniqueIndex(col)
+	}
 
 	// Realtime + REST access: a user may only view THEIR OWN todos.
 	// PocketBase realtime delivers a record event to a subscriber only if

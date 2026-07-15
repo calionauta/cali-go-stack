@@ -105,7 +105,7 @@ func buildFixture(t *testing.T, simClient *llm.Client) (
 	// binding (matches production wiring) AND run the demo-user
 	// seed inline — OnServe doesn't fire in tests, so the user
 	// would never be seeded.
-	if seedErr := db.SeedDefaults(app); seedErr != nil {
+	if seedErr := db.SeedDefaults(app, true); seedErr != nil {
 		t.Fatalf("testFixture: SeedDefaults: %v", seedErr)
 	}
 	if err = seedDemoUserInline(app); err != nil {

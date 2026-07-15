@@ -82,7 +82,7 @@ func buildFixtureDagNats(t *testing.T) (
 
 	workers := q.StartWorkers()
 
-	if seedErr := db.SeedDefaults(app); seedErr != nil {
+	if seedErr := db.SeedDefaults(app, true); seedErr != nil {
 		t.Fatalf("SeedDefaults: %v", seedErr)
 	}
 	if err = seedDemoUserInline(app); err != nil {
