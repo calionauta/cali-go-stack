@@ -47,7 +47,16 @@ RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     --mount=type=cache,target=/root/.npm,sharing=locked \
     go tool templ generate && \
     npm run build --silent && \
-    CGO_ENABLED=1 go build -tags "jetstream dagnats" -trimpath -ldflags="-s -w -extldflags=-static" -o /out/app ./cmd/web/
+    # Inject build metadata (Version/CommitHash/BuildTime) so the
+    # navbar version badge reflects exactly what was built. ARG
+    # VERSION/COMMIT/BUILDTIME are supplied by docker buildx (default
+    # 'dev' / 'unknown' / '' when invoked locally). Pass them via
+    # `docker buildx build --build-arg VERSION=v0.21.2 --build-arg
+    # COMMIT=$(git rev-parse --short HEAD)`.
+    ARG VERSION=dev
+    ARG COMMIT=unknown
+    ARG BUILDTIME=
+    CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -extldflags=-static -X main.Version=${VERSION} -X main.CommitHash=${COMMIT} -X main.BuildTime=${BUILDTIME}" -o /out/app ./cmd/web/
 
 # Stash the ca-certificates bundle so the runtime stage can copy it
 # without needing a shell. The alpine image installs the bundle at

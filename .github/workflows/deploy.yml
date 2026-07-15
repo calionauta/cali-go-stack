@@ -102,9 +102,10 @@ jobs:
 
       - name: Install cross C toolchain (CGO for arm64)
         # internal/collab uses loro-go, which is a CGO binding to the Loro
-        # C library. The prod binary is built with -tags jetstream, so it
-        # pulls in collab and MUST compile with CGO enabled. Cross-compiling
-        # CGO from x86_64 Ubuntu to linux/arm64 needs the aarch64 gcc.
+        # C library. The prod binary is always-compiled (no build tags since
+        # v0.21.x) and pulls in collab, so it MUST compile with CGO enabled.
+        # Cross-compiling CGO from x86_64 Ubuntu to linux/arm64 needs the
+        # aarch64 gcc.
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross
@@ -112,10 +113,22 @@ jobs:
       - name: Build prod binary
         run: |
           mkdir -p bin
+          # Inject build metadata (Version/CommitHash/BuildTime) so
+          # the navbar version badge reflects exactly what was
+          # deployed and the binary’s $Version variable can be
+          # checked at runtime via /api or a future /api/version.
+          # VERSION/COMMIT match what Makefile uses for `make build`.
+          # Without these, Version defaults to "dev" and the deployed
+          # binary always shows "dev" in the navbar regardless of the
+          # tag.
+          VERSION="${VERSION:-$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo dev)}"
+          COMMIT="${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
+          BUILDTIME="${BUILDTIME:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+          echo "→ Building $GITHUB_REPOSITORY v${VERSION} (commit ${COMMIT})"
           CGO_ENABLED=1 GOOS=linux GOARCH=arm64 \
             CC=aarch64-linux-gnu-gcc \
             go build \
-            -trimpath -ldflags="-s -w -extldflags=-static" \
+            -trimpath -ldflags="-s -w -extldflags=-static -X main.Version=${VERSION} -X main.CommitHash=${COMMIT} -X main.BuildTime=${BUILDTIME}" \
             -o bin/gogogo-fullstack-template.new ./cmd/web/
 
       - name: Stash binary

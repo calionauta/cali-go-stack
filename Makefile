@@ -138,8 +138,14 @@ dev:
 	@ENVIRONMENT=$${ENVIRONMENT:-development} air
 
 docker-image: templ
-	@echo "→ Building Docker image..."
+	@echo "→ Building Docker image v$(VERSION) (commit $(COMMIT))..."
+	# Pass build metadata into the image so the navbar version badge
+	# reflects exactly what was built. The Dockerfile consumes these
+	# as ARG VERSION / ARG COMMIT / ARG BUILDTIME.
 	docker buildx build --platform=linux/amd64,linux/arm64 \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg BUILDTIME=$(BUILDTIME) \
 		-t ghcr.io/calionauta/$(APP_NAME):latest \
 		-t ghcr.io/calionauta/$(APP_NAME):$(VERSION) \
 		--push .
