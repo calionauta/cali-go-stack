@@ -1,5 +1,5 @@
 // SCOPE:plugin - E2E test for the cross-instance doc-version-bumped
-// pipeline. This is the definitive Phase 2+3 path:
+// pipeline. This is the definitive cross-instance path:
 //
 //  1. Two CRDTStores share one JetStream.
 //  2. Store A receives a publisher wired to the SSE Hub (in-process
@@ -14,7 +14,7 @@
 // The fake publisher records every call so the assertions are exact;
 // no goroutine timing flakiness.
 //
-// This test was missing before Phase 3 closure: the previous
+// This test verifies the doc propagation together with the
 // integration_test verified the doc propagation but not the
 // downstream "doc version bumped" event that the SSE handler
 // consumes. Without this path, cross-instance changes hit the doc
@@ -104,7 +104,7 @@ func TestCRDTStore_FullPipeline_BumpPublisherFires(t *testing.T) {
 	storeA.SetTransport(trA)
 	storeB.SetTransport(trB)
 
-	ownerID := "owner-pipeline-1"
+	ownerID := newTestUserInBoth(t, appA, appB)
 
 	// Mutual Subscribe (each store subscribes via its own transport
 	// to keep loop-filter semantics simple).
@@ -137,7 +137,7 @@ func TestCRDTStore_FullPipeline_BumpPublisherFires(t *testing.T) {
 	}
 
 	// Step 1: B creates a todo.
-	if _, err := storeB.Create(ctx, todo.Todo{ID: "pipe-1", Title: "from B"}, ownerID, ""); err != nil {
+	if _, err := storeB.Create(ctx, todo.Todo{ID: "pipe1", Title: "from B"}, ownerID, ""); err != nil {
 		t.Fatalf("B.Create: %v", err)
 	}
 
@@ -160,7 +160,7 @@ func TestCRDTStore_FullPipeline_BumpPublisherFires(t *testing.T) {
 
 	// Mirror: A creates; B's publisher would fire (not wired here
 	// because we're testing storeA's pipeline specifically).
-	if _, err := storeA.Create(ctx, todo.Todo{ID: "pipe-2", Title: "from A"}, ownerID, ""); err != nil {
+	if _, err := storeA.Create(ctx, todo.Todo{ID: "pipe2", Title: "from A"}, ownerID, ""); err != nil {
 		t.Fatalf("A.Create: %v", err)
 	}
 

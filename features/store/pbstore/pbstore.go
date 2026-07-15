@@ -47,7 +47,7 @@ func New(app core.App, collectionName string) *PBStore {
 
 // Create persists a new todo. ownerID scopes it to the user; idemKey
 // enables offline-replay dedup via the OnRecordCreateRequest hook.
-func (s *PBStore) Create(_ context.Context, e todo.Todo, ownerID, _ string) (todo.Todo, error) {
+func (s *PBStore) Create(_ context.Context, e todo.Todo, ownerID, idemKey string) (todo.Todo, error) {
 	col, err := s.app.FindCollectionByNameOrId(s.collName)
 	if err != nil {
 		return todo.Todo{}, fmt.Errorf("pbstore: find collection %q: %w", s.collName, err)
@@ -57,6 +57,11 @@ func (s *PBStore) Create(_ context.Context, e todo.Todo, ownerID, _ string) (tod
 	rec.Set("completed", e.Completed)
 	if ownerID != "" {
 		rec.Set("owner", ownerID)
+	}
+	// Persist idemKey so the OnRecordCreateRequest idempotency hook can
+	// dedupe replayed offline writes via the (idem_key, owner) index.
+	if idemKey != "" {
+		rec.Set("idem_key", idemKey)
 	}
 	if err := s.app.Save(rec); err != nil {
 		return todo.Todo{}, fmt.Errorf("pbstore: save: %w", err)

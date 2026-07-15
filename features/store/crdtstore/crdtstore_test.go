@@ -3,32 +3,79 @@
 // Boots a temp PocketBase app (like db/idempotency_hook_test.go),
 // runs EnsureSchema, then exercises the 7 EntityStore methods
 // against the CRDTStore. Asserts:
-//   - the snapshot collection is created
+//   - the `todos` collection is created with the expected fields
 //   - Create returns the persisted entity; Get retrieves it
 //   - Update flips `completed` and bumps `updated`
 //   - Delete returns ErrNotFound on a second call
 //   - List with "active" / "completed" filters correctly
 //   - ClearCompleted removes only completed items
 //   - Count matches List length
-//   - snapshot round-trips: write → load from a fresh CRDTStore
-//     → state matches (this is the offline-replay scenario)
+//   - record round-trips: write → load from a fresh CRDTStore on the
+//     same data dir → state matches (this is the offline-replay
+//     / restart scenario)
+//
+// CRDTStore projects todos as normal PocketBase `todos` records with
+// `owner` as a relation to _pb_users_auth_, so every test uses a real
+// auth user id as the owner (see newTestUser) and PB-compatible record
+// ids (alphanumeric, <=15 chars, matching PocketBase's id pattern).
 package crdtstore
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/core"
 
 	_ "github.com/ncruces/go-sqlite3/driver"
 
 	"github.com/calionauta/gogogo-fullstack-template/features/store"
 	"github.com/calionauta/gogogo-fullstack-template/features/todo"
 )
+
+// userSeq gives every test user a unique email.
+var userSeq atomic.Int64
+
+// newTestUser creates a real auth user in app and returns its id.
+// CRDTStore writes `todos` with owner as a relation to
+// _pb_users_auth_, so tests must use a valid user id (not an arbitrary
+// string) as the owner.
+func newTestUser(t *testing.T, app *pocketbase.PocketBase) string {
+	return newTestUserWithID(t, app, "")
+}
+
+func newTestUserWithID(t *testing.T, app *pocketbase.PocketBase, id string) string {
+	t.Helper()
+	users, err := app.FindCollectionByNameOrId("_pb_users_auth_")
+	if err != nil {
+		t.Fatalf("find users collection: %v", err)
+	}
+	rec := core.NewRecord(users)
+	if id != "" {
+		rec.Set("id", id)
+	}
+	rec.Set("email", fmt.Sprintf("test-%d@example.com", userSeq.Add(1)))
+	rec.Set("password", "password123")
+	if err := app.Save(rec); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	return rec.Id
+}
+
+// newTestUserInBoth creates a user with the SAME id in two separate
+// PocketBase instances (used by cross-instance transport tests where
+// both stores must agree on the owner id).
+func newTestUserInBoth(t *testing.T, appA, appB *pocketbase.PocketBase) string {
+	id := newTestUser(t, appA)
+	newTestUserWithID(t, appB, id)
+	return id
+}
 
 // newTestApp is a local copy of the same pattern db/seed_test.go uses
 // (boots a fresh PocketBase app on a temp dir with the same ncruces
@@ -72,30 +119,28 @@ func newCRDTStore(t *testing.T) (*CRDTStore, *pocketbase.PocketBase, func()) {
 func TestCRDTStore_EnsureSchemaCreatesCollection(t *testing.T) {
 	s, _, cleanup := newCRDTStore(t)
 	defer cleanup()
-
-	col, err := s.app.FindCollectionByNameOrId(snapshotCollectionName)
+	if err := s.EnsureSchema(); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	col, err := s.app.FindCollectionByNameOrId(todosCollectionName)
 	if err != nil {
-		t.Fatalf("snapshot collection missing after EnsureSchema: %v", err)
+		t.Fatalf("collection %q not found: %v", todosCollectionName, err)
 	}
-	if col.Fields.GetByName("owner") == nil {
-		t.Error("owner field missing")
-	}
-	if col.Fields.GetByName("snapshot") == nil {
-		t.Error("snapshot field missing")
-	}
-	if col.Fields.GetByName("version") == nil {
-		t.Error("version field missing")
+	for _, f := range []string{"title", "completed", "owner", "created", "updated", "idem_key"} {
+		if col.Fields.GetByName(f) == nil {
+			t.Errorf("field %q missing", f)
+		}
 	}
 }
 
 func TestCRDTStore_CreateGetListUpdateDelete(t *testing.T) {
-	s, _, cleanup := newCRDTStore(t)
+	s, app, cleanup := newCRDTStore(t)
 	defer cleanup()
 	ctx := context.Background()
-	owner := "user-crud-1"
+	owner := newTestUser(t, app)
 
-	// Create: client-generated ID (UUID); store fills timestamps.
-	id := "11111111-2222-3333-4444-555555555555"
+	// Create: client-generated ID (PB-compatible); store fills timestamps.
+	id := "111111112222333"
 	in := todo.Todo{ID: id, Title: "first", Completed: false}
 	out, err := s.Create(ctx, in, owner, "")
 	if err != nil {
@@ -128,7 +173,7 @@ func TestCRDTStore_CreateGetListUpdateDelete(t *testing.T) {
 	// Update: toggle completed. The new UpdatedAt must be strictly
 	// later than the original — we don't compare wall clock strings
 	// directly (RFC3339 sub-second precision can collapse under
-	// snapshot round-trips); we just assert the timestamp advanced.
+	// record round-trips); we just assert the timestamp advanced.
 	updated, err := s.Update(ctx, owner, id, map[string]any{"completed": true, "title": "first-edited"})
 	if err != nil {
 		t.Fatalf("Update: %v", err)
@@ -173,24 +218,24 @@ func TestCRDTStore_CreateGetListUpdateDelete(t *testing.T) {
 }
 
 func TestCRDTStore_ClearCompleted(t *testing.T) {
-	s, _, cleanup := newCRDTStore(t)
+	s, app, cleanup := newCRDTStore(t)
 	defer cleanup()
 	ctx := context.Background()
-	owner := "user-clear-1"
+	owner := newTestUser(t, app)
 
 	// Create 3: 2 completed, 1 active.
 	for i, title := range []string{"a", "b", "c"} {
-		id := []string{"id-a", "id-b", "id-c"}[i]
+		id := []string{"ida", "idb", "idc"}[i]
 		_, err := s.Create(ctx, todo.Todo{ID: id, Title: title}, owner, "")
 		if err != nil {
 			t.Fatalf("Create %s: %v", id, err)
 		}
 	}
-	// Mark a and b completed.
-	if _, err := s.Update(ctx, owner, "id-a", map[string]any{"completed": true}); err != nil {
+	// Mark ida and idb completed.
+	if _, err := s.Update(ctx, owner, "ida", map[string]any{"completed": true}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Update(ctx, owner, "id-b", map[string]any{"completed": true}); err != nil {
+	if _, err := s.Update(ctx, owner, "idb", map[string]any{"completed": true}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -202,42 +247,44 @@ func TestCRDTStore_ClearCompleted(t *testing.T) {
 		t.Errorf("ClearCompleted returned %d, want 2", n)
 	}
 	all, _ := s.List(ctx, owner, "")
-	if len(all) != 1 || all[0].ID != "id-c" {
-		t.Errorf("after Clear, list = %+v, want only id-c", all)
+	if len(all) != 1 || all[0].ID != "idc" {
+		t.Errorf("after Clear, list = %+v, want only idc", all)
 	}
 }
 
-func TestCRDTStore_SnapshotRoundTrip(t *testing.T) {
-	// The CRDTStore persists a Loro snapshot to PB. A fresh CRDTStore
-	// reading the same data dir should load the snapshot and see the
-	// same entities. This is the offline-replay / restart scenario.
+func TestCRDTStore_RecordRoundTrip(t *testing.T) {
+	// CRDTStore projects todos as normal `todos` records. A fresh
+	// CRDTStore on the SAME PocketBase app (simulating an in-process
+	// store restart) must rebuild its in-memory doc from those records.
+	// This is the offline-replay / restart scenario.
 	tmpDir, err := os.MkdirTemp("", "crdtstore-roundtrip-*")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(tmpDir)
 
-	app1 := newTestApp(t, tmpDir)
-	s1 := New(app1)
+	app := newTestApp(t, tmpDir)
+	s1 := New(app)
 	if schemaErr := s1.EnsureSchema(); schemaErr != nil {
 		t.Fatal(schemaErr)
 	}
 	ctx := context.Background()
-	owner := "user-roundtrip-1"
+	owner := newTestUser(t, app)
 	for i, title := range []string{"alpha", "beta", "gamma"} {
-		id := []string{"id-alpha", "id-beta", "id-gamma"}[i]
+		id := []string{"idalp", "idbet", "idgam"}[i]
 		if _, createErr := s1.Create(ctx, todo.Todo{ID: id, Title: title}, owner, ""); createErr != nil {
 			t.Fatal(createErr)
 		}
 	}
-	if _, updateErr := s1.Update(ctx, owner, "id-beta", map[string]any{"completed": true}); updateErr != nil {
+	if _, updateErr := s1.Update(ctx, owner, "idbet", map[string]any{"completed": true}); updateErr != nil {
 		t.Fatal(updateErr)
 	}
 
-	// Fresh CRDTStore on the same data dir.
-	app2 := newTestApp(t, tmpDir)
-	defer func() { _ = app2.ResetBootstrapState() }()
-	s2 := New(app2)
+	// Simulate a restart: clear the in-memory CRDT state. The
+	// `todos` records survive in SQLite, so a brand-new store on the
+	// same app must rebuild its in-memory doc from them.
+	_ = s1.Close()
+	s2 := New(app)
 	all, err := s2.List(ctx, owner, "")
 	if err != nil {
 		t.Fatalf("s2.List: %v", err)
@@ -245,9 +292,9 @@ func TestCRDTStore_SnapshotRoundTrip(t *testing.T) {
 	if len(all) != 3 {
 		t.Fatalf("s2.List returned %d items, want 3", len(all))
 	}
-	gotBeta, _ := s2.Get(ctx, owner, "id-beta")
+	gotBeta, _ := s2.Get(ctx, owner, "idbet")
 	if !gotBeta.Completed {
-		t.Errorf("s2: id-beta Completed = false, want true (snapshot not restored)")
+		t.Errorf("s2: idbet Completed = false, want true (records not restored)")
 	}
 }
 
@@ -264,10 +311,10 @@ func TestCRDTStore_EmptyOwnerReturnsEmpty(t *testing.T) {
 }
 
 func TestCRDTStore_WatchSignals(t *testing.T) {
-	s, _, _ := newCRDTStore(t)
+	s, app, _ := newCRDTStore(t)
 	ctx := context.Background()
-	ownerID := "watch-owner"
-	if _, err := s.Create(ctx, todo.Todo{ID: "watch-1", Title: "first"}, ownerID, ""); err != nil {
+	ownerID := newTestUser(t, app)
+	if _, err := s.Create(ctx, todo.Todo{ID: "watch1", Title: "first"}, ownerID, ""); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	ch, cancel := s.Watch(ownerID)
@@ -282,7 +329,7 @@ func TestCRDTStore_WatchSignals(t *testing.T) {
 		t.Fatal("did not receive initial event")
 	}
 	// Next event triggered by a new mutation.
-	if _, err := s.Create(ctx, todo.Todo{ID: "watch-2", Title: "second"}, ownerID, ""); err != nil {
+	if _, err := s.Create(ctx, todo.Todo{ID: "watch2", Title: "second"}, ownerID, ""); err != nil {
 		t.Fatalf("Create 2: %v", err)
 	}
 	select {

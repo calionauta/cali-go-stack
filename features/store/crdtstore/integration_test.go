@@ -53,7 +53,7 @@ func TestCRDTStore_CrossProcessConvergence(t *testing.T) {
 	storeA.SetTransport(trA)
 	storeB.SetTransport(trB)
 
-	ownerID := "owner-conv-CRDT-1"
+	ownerID := newTestUserInBoth(t, appA, appB)
 
 	// Each store subscribes for the same owner via its OWN transport
 	// (mirrors two binary instances each holding a copy of the same
@@ -93,23 +93,23 @@ func TestCRDTStore_CrossProcessConvergence(t *testing.T) {
 	var (
 		errA, errB error
 	)
-	if _, errA = storeA.Create(ctx, todo.Todo{ID: "todo-a-1", Title: "from A"}, ownerID, ""); errA != nil {
+	if _, errA = storeA.Create(ctx, todo.Todo{ID: "todoa1", Title: "from A"}, ownerID, ""); errA != nil {
 		t.Fatalf("A.Create: %v", errA)
 	}
 	// B creates a todo for the same owner (A should see it).
-	if _, errB = storeB.Create(ctx, todo.Todo{ID: "todo-b-1", Title: "from B"}, ownerID, ""); errB != nil {
+	if _, errB = storeB.Create(ctx, todo.Todo{ID: "todob1", Title: "from B"}, ownerID, ""); errB != nil {
 		t.Fatalf("B.Create: %v", errB)
 	}
 
 	// Wait up to 3s for A to receive B's op.
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if got, _ := storeA.Get(ctx, ownerID, "todo-b-1"); got.Title == "from B" {
+		if got, _ := storeA.Get(ctx, ownerID, "todob1"); got.Title == "from B" {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	gotX, err := storeA.Get(ctx, ownerID, "todo-b-1")
+	gotX, err := storeA.Get(ctx, ownerID, "todob1")
 	if err != nil {
 		t.Fatalf("A never received B's op: %v", err)
 	}
@@ -120,12 +120,12 @@ func TestCRDTStore_CrossProcessConvergence(t *testing.T) {
 	// And B should see A's op too.
 	deadline = time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if got, _ := storeB.Get(ctx, ownerID, "todo-a-1"); got.Title == "from A" {
+		if got, _ := storeB.Get(ctx, ownerID, "todoa1"); got.Title == "from A" {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	gotY, err := storeB.Get(ctx, ownerID, "todo-a-1")
+	gotY, err := storeB.Get(ctx, ownerID, "todoa1")
 	if err != nil {
 		t.Fatalf("B never received A's op: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestCRDTStore_CrossProcessConvergence(t *testing.T) {
 	}
 
 	// Watch-like check: each store should have bumped its version
-	// counter for the owner at least once (Phase 3 hookup). Allow
+	// counter for the owner at least once (publisher hookup). Allow
 	// a beat for the ApplyRemoteOp callbacks to land before reading
 	// the version counter.
 	deadlineV := time.Now().Add(2 * time.Second)

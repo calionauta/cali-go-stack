@@ -1,43 +1,49 @@
 package crdtstore
 
-// SCOPE:plugin - REMOVE if you don't need CRDT-backed collaborative storage.
+// SCOPE:plugin - Loro CRDT-backed EntityStore strategy for todos.
 //
-// CRDTStore is the second EntityStore strategy: it persists each owner's
-// todos in a single Loro CRDT document and snapshots the resolved state
-// to PocketBase (collection todos_crdt_snapshot) for durability. The
-// strategy wins for the multi-user / multi-device use case because Loro
-// CRDT ops merge automatically — two devices editing the same todo
-// offline converge without data loss, no LWW.
+// Single source of truth = PocketBase. Every todo is eventually a
+// normal record in the `todos` collection (the SAME collection PBStore
+// uses, with the SAME fields: id, title, completed, created, updated,
+// owner, idem_key). The admin UI, SQL queries, and PocketBase realtime
+// all work against those records exactly as they do for PBStore.
+//
+// The Loro document is an in-memory CRDT merge workspace, one per
+// owner. It holds the authoritative *merged* state and is what
+// List/Get/Count read from. On every mutation the resolved todos are
+// projected (upserted/deleted) into the `todos` collection, and on
+// first access for an owner the Loro doc is rebuilt from the existing
+// `todos` records so a restart restores state from the same table
+// everything else uses.
+//
+// Why keep the Loro doc at all? It gives automatic, conflict-free
+// convergence of concurrent offline edits from multiple devices for
+// the same owner — the CRDT merge semantics PBStore (last-writer-wins
+// per field) does not provide. The PB records are the durable,
+// queryable projection; the doc is the merge engine.
 //
 // Trade-off vs PBStore:
 //
 //   - ✅ Auto-merge of concurrent edits (CRDT magic).
 //   - ✅ Offline-first by construction: ops replay converges.
-//   - ✅ JetStream MsgId dedup replaces our `idem_key` field when
-//     cross-instance sync is enabled (Phase 2 — not in MVP).
 //   - ❌ No SQL queries: List/filter is a full-doc scan over the LoroMap.
-//   - ❌ PB realtime becomes doc-version-bumped events, not per-record.
-//   - ❌ PB admin UI can't edit records directly (CRDT state is opaque).
-//   - ❌ Migration from PBStore requires a one-shot converter.
+//   - ❌ Migration from PBStore is a no-op copy (the `todos` records
+//     are already compatible).
 //
-// MVP scope (v0.20.0): per-owner in-memory LoroDoc + PB snapshot
-// persistence + a single-process lock. Cross-instance JetStream op
-// transport is a follow-up (see ARCHITECTURE.md, Phase 2).
-//
-// Why the in-house Loro wrapper duplicates a little of
-// internal/collab/collab.go: the collab.Doc is whiteboard-specific
-// (ApplyShapeOp hardcoded). CRDTStore operates on a LoroMap per
-// owner with todo-shaped values and needs a different commit
-// discipline. If a second generic CRDT consumer appears, extract a
-// shared `internal/collab/genericdoc.go`; for now, ~30 LOC of
-// duplication beats a leaky abstraction.
+// Realtime: mutations write normal `todos` records, so PocketBase
+// realtime already delivers per-owner updates to subscribed clients —
+// the same path PBStore uses. An optional JetStream op-transport
+// (SetTransport) additionally ships Loro ops across instances for
+// cross-instance convergence; it is OPTIONAL and OFF by default. The
+// SSE Hub publisher (SetPublisher) emits a doc-version tick so any
+// consumer can trigger a resync; also optional. Choose the strategy
+// with one env var: ENTITY_STORE=pb (default) or ENTITY_STORE=crdt.
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
@@ -53,14 +59,18 @@ import (
 // fields; the entry key is the todo ID.
 const itemsContainerName = "items"
 
-// snapshotCollectionName is the PB collection that stores the resolved
-// CRDT state per owner. Exported so EnsureSchema (and tests) can
-// reference it without duplicating the literal.
-const snapshotCollectionName = "todos_crdt_snapshot"
+// todosCollectionName is the normal PocketBase collection the resolved
+// todos are projected into. It is the SAME collection PBStore uses
+// (same id/title/completed/created/updated/owner/idem_key fields), so
+// the admin UI, SQL queries, and PocketBase realtime all see the same
+// data regardless of which strategy is active. Exported so EnsureSchema
+// and tests can reference it without duplicating the literal.
+const todosCollectionName = "todos"
 
 // CRDTStore is the CRDT-backed implementation of EntityStore[todo.Todo].
-// One in-memory LoroDoc per owner; persisted as a snapshot blob in
-// the todos_crdt_snapshot PocketBase collection.
+// One in-memory LoroDoc per owner is the CRDT merge workspace; the
+// resolved todos are projected as normal records into the `todos`
+// PocketBase collection (shared with PBStore).
 type CRDTStore struct {
 	app core.App
 
@@ -68,11 +78,11 @@ type CRDTStore struct {
 	docs map[string]*loro.LoroDoc // ownerID -> doc (lazy on first access)
 
 	// transport is the cross-instance JetStream op publisher
-	// (Phase 2). nil = single-process mode (publish is a no-op).
+	// (optional). nil = single-process mode (publish is a no-op).
 	transport *CRDTTransport
 
 	// versionMu protects versions + watchers + publisher. Bumped
-	// by bumpVersion after every saveSnapshot (both local and
+	// by bumpVersion after every persistRecords (both local and
 	// remote). The version counter is what Watch() subscribers
 	// receive via buffered chan; publisher (if set) is called
 	// synchronously to fan out the doc-version-bumped event to
@@ -85,7 +95,7 @@ type CRDTStore struct {
 }
 
 // DocPublisher is the cross-store event sink invoked from
-// bumpVersion after every saveSnapshot. The router wires this to
+// bumpVersion after every persistRecords. The router wires this to
 // the SSE Hub so each connected client of a given owner sees the
 // new doc version and re-fetches the fragment. Implementations
 // MUST NOT block — the publisher callback is called under
@@ -147,12 +157,12 @@ func New(app core.App) *CRDTStore {
 	}
 }
 
-// SetTransport wires the cross-instance JetStream op publisher
-// (Phase 2). Pass nil to disable cross-instance sync (single-process
-// mode, default). Call before any request handler runs. The caller
-// is responsible for starting the consumer (Subscribe) and for
-// running the goroutine that pumps the doc's encoded updates into
-// the transport.
+// SetTransport wires the optional cross-instance JetStream op publisher.
+// Pass nil to disable cross-instance sync (single-process mode,
+// default). Call before any request handler runs. The caller is
+// responsible for starting the consumer (Subscribe) and for running
+// the goroutine that pumps the doc's encoded updates into the
+// transport.
 func (s *CRDTStore) SetTransport(t *CRDTTransport) { s.transport = t }
 
 // publishOpFromDoc encodes d as a Loro Update and ships it to peers.
@@ -181,114 +191,166 @@ func (s *CRDTStore) publishOpFromDoc(ctx context.Context, ownerID, opID string, 
 	}
 }
 
-// EnsureSchema creates the todos_crdt_snapshot collection and the
-// owner-unique index if missing. Idempotent.
+// EnsureSchema makes sure the `todos` collection exists with the fields
+// CRDTStore writes. In production the collection is created by
+// db/seed.go (which also adds the idem_key unique index); here we only
+// create it if it is somehow missing (e.g. isolated tests). Idempotent.
 func (s *CRDTStore) EnsureSchema() error {
-	col, err := s.app.FindCollectionByNameOrId(snapshotCollectionName)
-	if err != nil {
-		col = core.NewBaseCollection(snapshotCollectionName)
-		col.Fields.Add(
-			&core.TextField{Name: "owner", Max: 100, Required: true},
-			&core.TextField{Name: "snapshot"},
-			&core.NumberField{Name: "version"},
-		)
+	if _, err := s.app.FindCollectionByNameOrId(todosCollectionName); err == nil {
+		return nil
 	}
-	if col.Fields.GetByName("owner") == nil {
-		return errors.New("crdtstore: owner field missing after create")
-	}
-	hasOwnerIndex := false
-	for _, sql := range col.Indexes {
-		if contains(sql, "crdt_snapshot_owner_idx") {
-			hasOwnerIndex = true
-			break
-		}
-	}
-	if !hasOwnerIndex {
-		col.AddIndex("crdt_snapshot_owner_idx", true, "owner", "")
-	}
+	col := core.NewBaseCollection(todosCollectionName)
+	// Field set mirrors db/seed.go's ensureTodosCollection so the
+	// collection CRDTStore creates (isolated tests / first-boot
+	// fallback) is byte-compatible with the production one.
+	col.Fields.Add(
+		&core.TextField{Name: "title", Required: true},
+		&core.BoolField{Name: "completed"},
+		&core.DateField{Name: "created"},
+		&core.DateField{Name: "updated"},
+		&core.RelationField{Name: "owner", MaxSelect: 1, CollectionId: "_pb_users_auth_"},
+		&core.TextField{Name: "idem_key", Max: 64},
+	)
+	// Unique (idem_key, owner) so offline replays dedupe, matching the
+	// index db/seed.go adds in production. idem_key may be empty for
+	// CRDTStore writes (the stable client id handles dedup there).
+	col.AddIndex("idx_todos_idem_owner", true, "idem_key", "owner")
 	if err := s.app.Save(col); err != nil {
-		return fmt.Errorf("crdtstore: save snapshot collection: %w", err)
+		return fmt.Errorf("crdtstore: create %q collection: %w", todosCollectionName, err)
 	}
-	slog.Info("crdtstore: ensured todos_crdt_snapshot collection")
 	return nil
 }
 
-// doc returns the LoroDoc for ownerID, lazily creating it (and
-// loading any persisted snapshot). Caller must hold s.mu if multi-op.
+// doc returns the LoroDoc for ownerID, lazily creating it and rebuilding
+// it from the existing `todos` records (so a restart restores state
+// from the same PocketBase table every other strategy uses). Caller
+// must hold s.mu if multi-op.
 func (s *CRDTStore) doc(ownerID string) (*loro.LoroDoc, error) {
 	if d, ok := s.docs[ownerID]; ok {
 		return d, nil
 	}
 	d := loro.NewLoroDoc()
-	snap, ok, err := s.loadSnapshot(ownerID)
+	items := d.GetMap(loro.AsContainerId(itemsContainerName))
+	records, err := s.app.FindRecordsByFilter(todosCollectionName, "owner = {:o}", "-created", 200, 0, map[string]any{"o": ownerID})
 	if err != nil {
-		return nil, fmt.Errorf("crdtstore: load snapshot for %s: %w", ownerID, err)
+		return nil, fmt.Errorf("crdtstore: load todos for %s: %w", ownerID, err)
 	}
-	if ok {
-		if _, iErr := d.Import(snap); iErr != nil {
-			return nil, fmt.Errorf("crdtstore: import snapshot for %s: %w", ownerID, iErr)
+	for _, r := range records {
+		child, iErr := items.InsertMapContainer(r.Id, loro.NewLoroMap())
+		if iErr != nil {
+			return nil, fmt.Errorf("crdtstore: rehydrate todo %s: %w", r.Id, iErr)
+		}
+		if wErr := writeItem(child, todoFromRecord(r)); wErr != nil {
+			return nil, wErr
 		}
 	}
 	s.docs[ownerID] = d
 	return d, nil
 }
 
-// saveSnapshot persists the current resolved doc state for ownerID.
-// Called after every mutating op so a crash never loses more than the
-// in-flight op. Also bumps the version counter for any caller (local
-// or remote). The Phase 3 SSE broadcaster subscribes to this counter.
-func (s *CRDTStore) saveSnapshot(ownerID string, d *loro.LoroDoc) error {
+// persistRecords projects the resolved doc state for ownerID into the
+// `todos` PocketBase collection: it upserts every todo currently in
+// the doc and deletes any `todos` record for this owner that is no
+// longer in the doc (so Delete/ClearCompleted stay consistent). The
+// Loro doc is the CRDT merge workspace; these records are the durable,
+// queryable projection shared with PBStore. Called after every mutating
+// op. Also bumps the version counter so Watch subscribers and the
+// optional publisher are notified.
+func (s *CRDTStore) persistRecords(ownerID string, d *loro.LoroDoc, idemKey string) error {
 	s.bumpVersion(ownerID)
-	snap, err := d.Export(loro.SnapshotMode())
+	items := d.GetMap(loro.AsContainerId(itemsContainerName))
+	want := make(map[string]todo.Todo, 16)
+	for id, vc := range items.All() {
+		if vc == nil || !vc.IsContainer() {
+			continue
+		}
+		t := todoFromLoro(id, *vc.AsLoroMap())
+		t.ID = id
+		want[id] = t
+	}
+	for _, t := range want {
+		if err := s.upsertTodoRecord(ownerID, t, idemKey); err != nil {
+			return err
+		}
+	}
+	// Delete `todos` records for this owner that the doc no longer
+	// contains (handles Delete / ClearCompleted).
+	have, err := s.app.FindRecordsByFilter(todosCollectionName, "owner = {:o}", "", 200, 0, map[string]any{"o": ownerID})
 	if err != nil {
-		return fmt.Errorf("crdtstore: export snapshot: %w", err)
+		return fmt.Errorf("crdtstore: list existing todos: %w", err)
 	}
-	col, cErr := s.app.FindCollectionByNameOrId(snapshotCollectionName)
-	if cErr != nil {
-		return fmt.Errorf("crdtstore: find snapshot collection: %w", cErr)
-	}
-	rec, fErr := s.app.FindFirstRecordByFilter(snapshotCollectionName, "owner = {:o}", map[string]any{"o": ownerID})
-	if fErr != nil || rec == nil {
-		rec = core.NewRecord(col)
-		rec.Set("owner", ownerID)
-		rec.Set("version", 1)
-	} else {
-		rec.Set("version", rec.GetInt("version")+1)
-	}
-	rec.Set("snapshot", string(snap))
-	if sErr := s.app.Save(rec); sErr != nil {
-		return fmt.Errorf("crdtstore: save snapshot: %w", sErr)
+	for _, rec := range have {
+		if _, ok := want[rec.Id]; ok {
+			continue
+		}
+		if dErr := s.app.Delete(rec); dErr != nil {
+			return fmt.Errorf("crdtstore: delete stale todo %s: %w", rec.Id, dErr)
+		}
 	}
 	return nil
 }
 
-// loadSnapshot returns the persisted snapshot bytes for ownerID and
-// whether one was found. A "no rows" result is reported as (nil,
-// false, nil) — not an error — so the caller can lazily create a
-// fresh Loro doc on first access without surfacing a PB-internal
-// "no rows in result set" message to the user.
-func (s *CRDTStore) loadSnapshot(ownerID string) ([]byte, bool, error) {
-	rec, err := s.app.FindFirstRecordByFilter(snapshotCollectionName, "owner = {:o}", map[string]any{"o": ownerID})
+// upsertTodoRecord writes a single todo as a `todos` record, creating
+// it when the id is new or updating the existing one.
+func (s *CRDTStore) upsertTodoRecord(ownerID string, t todo.Todo, idemKey string) error {
+	col, err := s.app.FindCollectionByNameOrId(todosCollectionName)
 	if err != nil {
-		// PocketBase returns a "no rows in result set" error from
-		// FindFirstRecordByFilter when the filter matches nothing.
-		// Treat that as a cache miss, not a real failure.
-		if err.Error() == "sql: no rows in result set" {
-			return nil, false, nil
+		return fmt.Errorf("crdtstore: find %q: %w", todosCollectionName, err)
+	}
+	var rec *core.Record
+	if existing, fErr := s.app.FindRecordById(todosCollectionName, t.ID); fErr == nil && existing != nil {
+		rec = existing
+		// Preserve the idem_key set on first Create (do not overwrite
+		// it on later updates of the same record).
+	} else {
+		rec = core.NewRecord(col)
+		// idemKey (the client's request key) makes the unique
+		// (idem_key, owner) index meaningful for offline-replay dedup.
+		// When absent (e.g. isolated tests, or cross-instance merges),
+		// fall back to the record id, which is unique per record, so the
+		// index never collapses two empty values for the same owner.
+		if idemKey != "" {
+			rec.Set("idem_key", idemKey)
+		} else {
+			rec.Set("idem_key", t.ID)
 		}
-		return nil, false, err
 	}
-	if rec == nil {
-		return nil, false, nil
+	rec.Set("owner", ownerID)
+	rec.Set("title", t.Title)
+	rec.Set("completed", t.Completed)
+	if !t.CreatedAt.IsZero() {
+		rec.Set("created", t.CreatedAt)
 	}
-	return []byte(rec.GetString("snapshot")), true, nil
+	if !t.UpdatedAt.IsZero() {
+		rec.Set("updated", t.UpdatedAt)
+	}
+	if err := s.app.Save(rec); err != nil {
+		return fmt.Errorf("crdtstore: save todo %q: %w", t.ID, err)
+	}
+	return nil
 }
 
-// Create inserts a new todo into the owner's doc and persists the
-// snapshot. idemKey is currently unused (the CRDT op IDs are
-// implicitly idempotent within a doc); Phase 2 will use it for
-// JetStream MsgId dedup across instances.
-func (s *CRDTStore) Create(_ context.Context, e todo.Todo, ownerID, _ string) (todo.Todo, error) {
+// todoFromRecord decodes a normal `todos` PocketBase record into a todo.
+func todoFromRecord(r *core.Record) todo.Todo {
+	return todo.Todo{
+		ID:        r.Id,
+		Title:     r.GetString("title"),
+		Completed: r.GetBool("completed"),
+		CreatedAt: r.GetDateTime("created").Time(),
+		UpdatedAt: r.GetDateTime("updated").Time(),
+	}
+}
+
+// Create inserts a new todo into the owner's doc and projects it as a
+// normal `todos` record. The client must supply a PB-compatible id
+// (alphanumeric, <=15 chars, matching PocketBase's record-id pattern)
+// — it becomes both the Loro map key and the `todos` record id.
+// idemKey (the client's request key) is persisted on the record so the
+// unique (idem_key, owner) index dedupes offline replays; the stable
+// client-generated id additionally makes Create idempotent at the
+// Loro-map level (a replayed request reuses the same id and is
+// rejected as a duplicate).
+func (s *CRDTStore) Create(_ context.Context, e todo.Todo, ownerID, idemKey string) (todo.Todo, error) {
 	if ownerID == "" {
 		return todo.Todo{}, errors.New("crdtstore: empty ownerID")
 	}
@@ -302,10 +364,13 @@ func (s *CRDTStore) Create(_ context.Context, e todo.Todo, ownerID, _ string) (t
 		return todo.Todo{}, err
 	}
 	items := d.GetMap(loro.AsContainerId(itemsContainerName))
-	if vc := items.Lookup(e.ID); vc != nil {
-		// id already exists; surface a conflict. Phase 2 will use
-		// idemKey to merge concurrent creates of the same id.
-		return todo.Todo{}, store.ErrNotFound
+	if vc := items.Lookup(e.ID); vc != nil && vc.IsContainer() {
+		// Idempotent Create: the same client-generated id already
+		// exists (offline replay re-sends the same id). Return the
+		// existing entity instead of erroring, so a retried request
+		// converges to the original write.
+		existing := todoFromLoro(e.ID, *vc.AsLoroMap())
+		return existing, nil
 	}
 	child, err := items.InsertMapContainer(e.ID, loro.NewLoroMap())
 	if err != nil {
@@ -314,7 +379,7 @@ func (s *CRDTStore) Create(_ context.Context, e todo.Todo, ownerID, _ string) (t
 	if err := writeItem(child, e); err != nil {
 		return todo.Todo{}, fmt.Errorf("crdtstore: write item: %w", err)
 	}
-	if err := s.saveSnapshot(ownerID, d); err != nil {
+	if err := s.persistRecords(ownerID, d, idemKey); err != nil {
 		return todo.Todo{}, err
 	}
 	//nolint:contextcheck
@@ -411,7 +476,7 @@ func (s *CRDTStore) Update(_ context.Context, ownerID, id string, patch map[stri
 	if err := m.InsertAny("updated", time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 		return todo.Todo{}, err
 	}
-	if err := s.saveSnapshot(ownerID, d); err != nil {
+	if err := s.persistRecords(ownerID, d, ""); err != nil {
 		return todo.Todo{}, err
 	}
 	//nolint:contextcheck
@@ -442,7 +507,7 @@ func (s *CRDTStore) Delete(_ context.Context, ownerID, id string) error {
 	if err := items.Delete(id); err != nil {
 		return fmt.Errorf("crdtstore: delete: %w", err)
 	}
-	if err := s.saveSnapshot(ownerID, d); err != nil {
+	if err := s.persistRecords(ownerID, d, ""); err != nil {
 		return err
 	}
 	//nolint:contextcheck
@@ -480,7 +545,7 @@ func (s *CRDTStore) ClearCompleted(_ context.Context, ownerID string) (int, erro
 		}
 	}
 	if len(toDelete) > 0 {
-		if err := s.saveSnapshot(ownerID, d); err != nil {
+		if err := s.persistRecords(ownerID, d, ""); err != nil {
 			return len(toDelete), err
 		}
 		//nolint:contextcheck
@@ -534,22 +599,22 @@ func (s *CRDTStore) ApplyRemoteOp(_ context.Context, ownerID string, op Op) erro
 	if _, err := d.Import(op.Updates); err != nil {
 		return fmt.Errorf("crdtstore ApplyRemoteOp: import: %w", err)
 	}
-	if err := s.saveSnapshot(ownerID, d); err != nil {
-		return fmt.Errorf("crdtstore ApplyRemoteOp: save snapshot: %w", err)
+	if err := s.persistRecords(ownerID, d, ""); err != nil {
+		return fmt.Errorf("crdtstore ApplyRemoteOp: persist: %w", err)
 	}
-	// Emit a "doc version bumped" event so the UI can re-fetch
-	// (Phase 3: SSE-based realtime for CRDTStore). For now we just
-	// bump a version counter that the handler can poll.
+	// Emit a "doc version bumped" event so the UI can re-fetch.
+	// The publisher (if wired to the SSE Hub) fans it out; PB realtime
+	// also delivers the underlying `todos` record change directly.
 	s.bumpVersion(ownerID)
 	slog.Debug("crdtstore: applied remote op", "owner", ownerID, "op", op.ID, "publisher", op.PublisherID)
 	return nil
 }
 
 // bumpVersion increments the in-memory version counter for an owner
-// and (Phase 3) fans out the new version to subscribers via Watch
-// AND to the optional publisher. The counter is the ground-truth
-// for catch-up reads on reconnect; the channel + publisher are
-// the live notification paths.
+// and fans out the new version to subscribers via Watch AND to the
+// optional publisher (when one is wired). The counter is the
+// ground-truth for catch-up reads on reconnect; the channel +
+// publisher are the live notification paths.
 func (s *CRDTStore) bumpVersion(ownerID string) {
 	s.versionMu.Lock()
 	if s.versions == nil {
@@ -577,8 +642,8 @@ func (s *CRDTStore) bumpVersion(ownerID string) {
 }
 
 // Version returns the current version counter for an owner (or 0).
-// Tests + (Phase 3) the SSE broadcast use this to detect a "doc
-// version bumped" event.
+// Tests + the SSE broadcaster (wired via SetPublisher) use this to
+// detect a "doc version bumped" event.
 func (s *CRDTStore) Version(ownerID string) uint64 {
 	s.versionMu.Lock()
 	defer s.versionMu.Unlock()
@@ -712,13 +777,23 @@ func todoFromLoro(id string, m *loro.LoroMap) todo.Todo {
 	}
 }
 
-// contains is a substring helper. Could use strings.Contains but this
-// keeps the file dependency-free at the cost of one tiny helper.
-func contains(haystack, needle string) bool {
-	return strings.Contains(haystack, needle)
+// Close releases all per-owner in-memory state (docs, versions,
+// watchers, publisher). Safe to call multiple times. The PocketBase
+// app and the JetStream transport are owned by their callers.
+func (s *CRDTStore) Close() error {
+	s.mu.Lock()
+	s.docs = make(map[string]*loro.LoroDoc)
+	s.mu.Unlock()
+	s.versionMu.Lock()
+	s.versions = make(map[string]uint64)
+	s.watchers = nil
+	s.publisher = nil
+	s.publisherName = ""
+	s.versionMu.Unlock()
+	return nil
 }
 
-// Compile-time guard: CRDTStore must satisfy EntityStore[todo.Todo].
+// compile-time guard: CRDTStore must satisfy EntityStore[todo.Todo].
 // Adding a method here without implementing it would now be a compile
 // error instead of a runtime panic.
 var _ store.EntityStore[todo.Todo] = (*CRDTStore)(nil)
