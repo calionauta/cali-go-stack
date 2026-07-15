@@ -7,7 +7,6 @@ package db
 import (
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
@@ -89,7 +88,7 @@ func ensureTodosCollection(app core.App) error {
 		slog.Info("seed: ensured todos.owner relation -> users")
 	}
 
-	ensureTodosIdempotency(col)
+	enableTodosIdempotency(col)
 
 	// Realtime + REST access: a user may only view THEIR OWN todos.
 	// PocketBase realtime delivers a record event to a subscriber only if
@@ -227,25 +226,4 @@ func ensureUsersCollectionRules(app core.App) error {
 	}
 	slog.Info("seed: locked users collection (no public create/delete)")
 	return nil
-}
-
-// ensureTodosIdempotency adds the (idem_key, owner) dedup field +
-// unique index to the todos collection. Called from
-// ensureTodosCollection; extracted to keep the parent under the
-// gocyclo budget.
-func ensureTodosIdempotency(col *core.Collection) {
-	if col.Fields.GetByName("idem_key") == nil {
-		col.Fields.Add(&core.TextField{Name: "idem_key", Max: 100})
-		slog.Info("seed: ensured todos.idem_key field")
-	}
-	hasIdemKeyIndex := false
-	for _, sql := range col.Indexes {
-		if strings.Contains(sql, `"idem_key_owner_idx"`) {
-			hasIdemKeyIndex = true
-			break
-		}
-	}
-	if !hasIdemKeyIndex {
-		col.AddIndex("idem_key_owner_idx", true, "idem_key,owner", "")
-	}
 }

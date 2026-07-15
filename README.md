@@ -88,6 +88,8 @@ JetStream    → multi-instance broadcast + cross-instance state (runtime opt-ou
 
 **Offline sync uses yet another path.** On the web, the **Service Worker** (`web/resources/static/sw.js`) intercepts POST/PUT/DELETE mutations when the browser is offline, queues them in IndexedDB, and replays them via Background Sync when connectivity returns. On the desktop (NATS Leaf Node), the local JetStream persists mutations to disk and replays them when the Leaf Node reconnects to the server — no Service Worker needed.
 
+**Replay is dedup'd at the server.** The todo create form attaches a fresh `idem_key` UUID to every submit; `db/idempotency_hook.go` intercepts `OnRecordCreateRequest` and returns the existing record on a `(idem_key, owner)` match, so a Service Worker replay doesn't create a duplicate todo. The whiteboard avoids this entirely because Loro CRDT ops already carry unique IDs and converge idempotently on their own.
+
 **The opt-out rules are simple:**
 - **Infrastructure components** (NATS, DagNats) have runtime env vars in `config/config.go`. Set `NATS_ENABLED=false` or `DAGNATS_ENABLED=false` and the engine won't boot; downstream consumers handle nil gracefully.
 - **Product features** (Todo, Whiteboard) have no runtime flag. To remove them, delete the package directory and remove the wiring call from `router/router.go` — that's the SCOPE removal pattern. See [Architecture taxonomy](#architecture-taxonomy-core--pluggable--feature).
