@@ -4667,10 +4667,10 @@
       --badge-fg: var(--color-accent-content);
     }
   }
-  .badge-neutral {
+  .badge-info {
     @layer daisyui.l1.l2 {
-      --badge-color: var(--color-neutral);
-      --badge-fg: var(--color-neutral-content);
+      --badge-color: var(--color-info);
+      --badge-fg: var(--color-info-content);
     }
   }
   .badge-primary {

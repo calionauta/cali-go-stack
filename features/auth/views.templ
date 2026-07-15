@@ -15,7 +15,7 @@ templ Navbar(userEmail string, active string, buildLabel string, buildCommit str
 			// verify the binary by eye instead of guessing from session
 			// storage or grep-ing CDN. "dev" for `go run`. The label has a
 			// title= that exposes commit + build time on hover.
-			<span class="badge badge-soft badge-neutral badge-sm font-mono hidden sm:inline-flex" title={ buildCommit + " · built " + buildLabel }>{ buildLabel }</span>
+			<span class="badge badge-info badge-soft badge-sm font-mono tracking-tight hidden sm:inline-flex" title={ buildCommit + " · built " + buildLabel }>{ buildLabel }</span>
 			<div class="flex items-center gap-1 ml-1 sm:ml-2">
 				<a href="/" class={ templ.Classes("btn btn-ghost btn-sm font-medium", map[string]bool{
 					"btn-active": active == "todos",

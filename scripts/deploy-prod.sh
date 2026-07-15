@@ -115,7 +115,18 @@ echo "→ Data dir ready: ${DATA_DIR} (container uid 65532 gets rwx via ACL or 0
 REPO_DIR="${APP_DIR}/repo"
 cd "${REPO_DIR}"
 echo "→ docker compose build + up -d (context: ${REPO_DIR})"
-docker compose -f deploy/docker-compose.prod.yml build "${PROJECT}"
+# Read the build metadata locally so the Dockerfile.prod ARG defaults
+# are overridden with the real values, not "dev"/"unknown"/"" (the
+# CI-built binary at bin/gogogo-fullstack-template is the artifact
+# that gets the canonical stamp; this is the fallback path if the
+# CI-built binary is missing).
+BUILD_VERSION="$(cd "${REPO_DIR}" && git describe --tags --abbrev=0 2>/dev/null | sed "s/^v//" || echo dev)"
+BUILD_COMMIT="$(cd "${REPO_DIR}" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+docker compose -f deploy/docker-compose.prod.yml build "${PROJECT}" \
+    --build-arg "VERSION=${BUILD_VERSION}" \
+    --build-arg "COMMIT=${BUILD_COMMIT}" \
+    --build-arg "BUILDTIME=${BUILD_TIME}"
 docker compose -f deploy/docker-compose.prod.yml up -d "${PROJECT}"
 
 # ── 6. Wait for healthy + report ──
