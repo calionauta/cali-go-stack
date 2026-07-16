@@ -41,6 +41,7 @@ package crdtstore
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -232,7 +233,11 @@ func (s *CRDTStore) doc(ownerID string) (*loro.LoroDoc, error) {
 	d := loro.NewLoroDoc()
 	items := d.GetMap(loro.AsContainerId(itemsContainerName))
 	records, err := s.app.FindRecordsByFilter(todosCollectionName, "owner = {:o}", "-created", 200, 0, map[string]any{"o": ownerID})
-	if err != nil {
+	// PB v0.39.6's FindRecordsByFilter returns sql.ErrNoRows when the
+	// filter matches no records (instead of an empty slice + nil).
+	// Treat that as "no existing todos" so the first access for a
+	// fresh owner is not an error.
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("crdtstore: load todos for %s: %w", ownerID, err)
 	}
 	for _, r := range records {
@@ -276,7 +281,8 @@ func (s *CRDTStore) persistRecords(ownerID string, d *loro.LoroDoc) error {
 	// Delete `todos` records for this owner that the doc no longer
 	// contains (handles Delete / ClearCompleted).
 	have, err := s.app.FindRecordsByFilter(todosCollectionName, "owner = {:o}", "", 200, 0, map[string]any{"o": ownerID})
-	if err != nil {
+	// Same sql.ErrNoRows-treat-as-empty normalisation as doc() above.
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("crdtstore: list existing todos: %w", err)
 	}
 	for _, rec := range have {
@@ -294,8 +300,17 @@ func (s *CRDTStore) persistRecords(ownerID string, d *loro.LoroDoc) error {
 // it when the id is new or updating the existing one.
 func (s *CRDTStore) upsertTodoRecord(ownerID string, t todo.Todo) error {
 	col, err := s.app.FindCollectionByNameOrId(todosCollectionName)
-	if err != nil {
+	// PB v0.39.6's FindCollectionByNameOrId returns sql.ErrNoRows when
+	// the collection does not exist (mirrors the FindRecordsByFilter
+	// behaviour). Treat that as "collection missing" rather than an
+	// error: callers should have wired EnsureSchema or the seed
+	// beforehand; if not, surface a clear diagnostic rather than a
+	// driver-flavoured error.
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("crdtstore: find %q: %w", todosCollectionName, err)
+	}
+	if col == nil {
+		return fmt.Errorf("crdtstore: collection %q not found (call EnsureSchema or SeedDefaults first)", todosCollectionName)
 	}
 	var rec *core.Record
 	// Look up by (idem_key, owner) instead of by record id. The Loro map
