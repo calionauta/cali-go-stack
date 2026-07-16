@@ -256,7 +256,7 @@ func (s *CRDTStore) doc(ownerID string) (*loro.LoroDoc, error) {
 // queryable projection shared with PBStore. Called after every mutating
 // op. Also bumps the version counter so Watch subscribers and the
 // optional publisher are notified.
-func (s *CRDTStore) persistRecords(ownerID string, d *loro.LoroDoc, idemKey string) error {
+func (s *CRDTStore) persistRecords(ownerID string, d *loro.LoroDoc) error {
 	s.bumpVersion(ownerID)
 	items := d.GetMap(loro.AsContainerId(itemsContainerName))
 	want := make(map[string]todo.Todo, 16)
@@ -269,7 +269,7 @@ func (s *CRDTStore) persistRecords(ownerID string, d *loro.LoroDoc, idemKey stri
 		want[id] = t
 	}
 	for _, t := range want {
-		if err := s.upsertTodoRecord(ownerID, t, idemKey); err != nil {
+		if err := s.upsertTodoRecord(ownerID, t); err != nil {
 			return err
 		}
 	}
@@ -292,28 +292,30 @@ func (s *CRDTStore) persistRecords(ownerID string, d *loro.LoroDoc, idemKey stri
 
 // upsertTodoRecord writes a single todo as a `todos` record, creating
 // it when the id is new or updating the existing one.
-func (s *CRDTStore) upsertTodoRecord(ownerID string, t todo.Todo, idemKey string) error {
+func (s *CRDTStore) upsertTodoRecord(ownerID string, t todo.Todo) error {
 	col, err := s.app.FindCollectionByNameOrId(todosCollectionName)
 	if err != nil {
 		return fmt.Errorf("crdtstore: find %q: %w", todosCollectionName, err)
 	}
 	var rec *core.Record
-	if existing, fErr := s.app.FindRecordById(todosCollectionName, t.ID); fErr == nil && existing != nil {
+	// Look up by (idem_key, owner) instead of by record id. The Loro map
+	// key is the client-generated id (possibly 5-char alnum or a UUID),
+	// but PB record ids are auto-generated 15-char alnum. idem_key is
+	// always the Loro key (i.e. the client-generated id), stored on
+	// first Create — so subsequent upserts find the same row via the
+	// (idem_key, owner) unique index instead of creating duplicates.
+	existing, fErr := s.app.FindFirstRecordByFilter(
+		todosCollectionName, "idem_key = {:k} && owner = {:o}",
+		map[string]any{"k": t.ID, "o": ownerID},
+	)
+	if fErr == nil && existing != nil {
 		rec = existing
-		// Preserve the idem_key set on first Create (do not overwrite
-		// it on later updates of the same record).
+		// Preserve idem_key (it already equals t.ID, but we do not
+		// rely on that — preserve rather than Set so the contract is
+		// unambiguous).
 	} else {
 		rec = core.NewRecord(col)
-		// idemKey (the client's request key) makes the unique
-		// (idem_key, owner) index meaningful for offline-replay dedup.
-		// When absent (e.g. isolated tests, or cross-instance merges),
-		// fall back to the record id, which is unique per record, so the
-		// index never collapses two empty values for the same owner.
-		if idemKey != "" {
-			rec.Set("idem_key", idemKey)
-		} else {
-			rec.Set("idem_key", t.ID)
-		}
+		rec.Set("idem_key", t.ID)
 	}
 	rec.Set("owner", ownerID)
 	rec.Set("title", t.Title)
@@ -379,7 +381,7 @@ func (s *CRDTStore) Create(_ context.Context, e todo.Todo, ownerID, idemKey stri
 	if err := writeItem(child, e); err != nil {
 		return todo.Todo{}, fmt.Errorf("crdtstore: write item: %w", err)
 	}
-	if err := s.persistRecords(ownerID, d, idemKey); err != nil {
+	if err := s.persistRecords(ownerID, d); err != nil {
 		return todo.Todo{}, err
 	}
 	//nolint:contextcheck
@@ -476,7 +478,7 @@ func (s *CRDTStore) Update(_ context.Context, ownerID, id string, patch map[stri
 	if err := m.InsertAny("updated", time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 		return todo.Todo{}, err
 	}
-	if err := s.persistRecords(ownerID, d, ""); err != nil {
+	if err := s.persistRecords(ownerID, d); err != nil {
 		return todo.Todo{}, err
 	}
 	//nolint:contextcheck
@@ -507,7 +509,7 @@ func (s *CRDTStore) Delete(_ context.Context, ownerID, id string) error {
 	if err := items.Delete(id); err != nil {
 		return fmt.Errorf("crdtstore: delete: %w", err)
 	}
-	if err := s.persistRecords(ownerID, d, ""); err != nil {
+	if err := s.persistRecords(ownerID, d); err != nil {
 		return err
 	}
 	//nolint:contextcheck
@@ -545,7 +547,7 @@ func (s *CRDTStore) ClearCompleted(_ context.Context, ownerID string) (int, erro
 		}
 	}
 	if len(toDelete) > 0 {
-		if err := s.persistRecords(ownerID, d, ""); err != nil {
+		if err := s.persistRecords(ownerID, d); err != nil {
 			return len(toDelete), err
 		}
 		//nolint:contextcheck
@@ -599,7 +601,7 @@ func (s *CRDTStore) ApplyRemoteOp(_ context.Context, ownerID string, op Op) erro
 	if _, err := d.Import(op.Updates); err != nil {
 		return fmt.Errorf("crdtstore ApplyRemoteOp: import: %w", err)
 	}
-	if err := s.persistRecords(ownerID, d, ""); err != nil {
+	if err := s.persistRecords(ownerID, d); err != nil {
 		return fmt.Errorf("crdtstore ApplyRemoteOp: persist: %w", err)
 	}
 	// Emit a "doc version bumped" event so the UI can re-fetch.
