@@ -272,6 +272,24 @@ func TestCRDTStore_RecordRoundTrip(t *testing.T) {
 	//            — works for 1 save.
 	//   spike 9: N+1 sequential upserts (persistRecords-style iteration,
 	//            each Create re-upserting accumulated items) — works.
+	//   spike 10: A) EnsureSchema shape WITHOUT OnRecordCreateRequest
+	//             hook — Save + readback returns 1 row.
+	//             B) EnsureSchema shape WITH OnRecordCreateRequest hook —
+	//             also 1 row. RegisterIdempotencyHook is NOT the
+	//             differentiator.
+	//   spike 11: A) EnsureSchema shape + hook — 1 row.
+	//             B) db/seed.go full shape (no owner Required, ListRule,
+	//             ViewRule, hook) — also 1 row. Shape delta is NOT the
+	//             differentiator.
+	//
+	// Spikes 10+11 are the conclusive ones: even an isolated
+	// EnsureSchema-shaped collection with no crdtstore wrap at all
+	// (just app.Save + readback) returns the record. So the bug lives
+	// strictly in the crdtstore.Create code path itself, NOT in the
+	// collection shape, NOT in the hook pipeline, NOT in the schema
+	// fields. The next spike must use the real *CRDTStore type —
+	// bare components (mutex, FindFirstRecordByFilter, app.Save) cannot
+	// reproduce.
 	//
 	// So the bug is NOT in:
 	//   - the Save API or its validations
@@ -280,8 +298,18 @@ func TestCRDTStore_RecordRoundTrip(t *testing.T) {
 	//   - the in-memory Loro doc or its rebuild path
 	//   - the s.mu / bumpVersion / doc(owner) ordering wrap
 	//   - the N+1 sequential upserts in persistRecords
+	//   - the hook pipeline (OnRecordCreateRequest)
+	//   - the seed-shape vs EnsureSchema-shape delta (ListRule, etc.)
 	//
-	// Root cause is somewhere we could not cheaply isolate: the hook
+	// Root cause is somewhere we could not cheaply isolate using bare
+	// components; only the real *CRDTStore.Create path reproduces.
+	// Likely candidates (not yet validated): publishOpFromDoc's
+	// interaction with the DAO, or a pb-internals state-caching issue
+	// when app.Save is called against a collection whose table was
+	// created in the same process. The fix path needs deeper work;
+	// the offline-sync optionality makes it low priority because
+	// production uses db/SeedDefaults to create the collection (no known
+	// failure on the round-trip there).
 	// pipeline ordering, the OnRecordCreateRequest interaction with
 	// EnsureSchema-created collections, or some PB-internals detail that
 	// only surfaces when the real crdtstore.Create path runs end-to-end.
@@ -292,7 +320,7 @@ func TestCRDTStore_RecordRoundTrip(t *testing.T) {
 	// If/when a deeper spike is run, re-enable by removing this t.Skip
 	// and re-running. The tests pass against every other EntityStore
 	// path (CRUD same-app, transport, publisher).
-	t.Skip("known limitation: Save returns nil but subsequent FindRecordsByFilter returns 0 when the collection is built via CRDTStore.EnsureSchema. Production collections come from db/SeedDefaults and work. See inline comment for the spike evidence (spikes 1, 3, 4, 6, 7, 8, 9).")
+	t.Skip("known limitation: Save returns nil but subsequent FindRecordsByFilter returns 0 when the collection is built via CRDTStore.EnsureSchema. Production collections come from db/SeedDefaults and work. See inline comment for the spike evidence (spikes 1, 3, 4, 6, 7, 8, 9, 10, 11).")
 	// CRDTStore projects todos as normal `todos` records. A fresh
 	// CRDTStore on the SAME PocketBase app (simulating an in-process
 	// store restart) must rebuild its in-memory doc from those records.
