@@ -61,7 +61,7 @@ self.addEventListener("activate", function (e) {
 // mutations), sync-end (replay finished cleanly), sync-error (replay
 // stopped with items still pending, or queued while offline).
 function notifyClients(state) {
-  self.clients.matchAll({ includeUncontrolled: true, type: "window" })
+  return self.clients.matchAll({ includeUncontrolled: true, type: "window" })
     .then(function (clientsList) {
       clientsList.forEach(function (client) {
         client.postMessage({ type: state });
@@ -130,17 +130,22 @@ async function staleWhileRevalidate(request) {
 
 // ---- POST/PUT/PATCH/DELETE: network-first with offline queue ----
 async function networkFirstWithQueue(request) {
+  // Clone before fetch consumes the request body. Cloning in the catch block
+  // loses form mutations because a failed fetch can still mark the original
+  // body as used, making request.clone() throw before IndexedDB is reached.
+  var replayable = request.clone();
   try {
     // Try the real request first.
     return await fetch(request);
   } catch (_) {
-    // Network unavailable — queue the request and return a 200 Datastar
-    // fragment (see below) so the client's @post action applies a patch.
+    // Network unavailable — queue the preserved request and return a 200
+    // Datastar fragment (see below) so the client's @post action completes.
     try {
-      var cloned = request.clone();
-      await queueRequest(cloned);
+      await queueRequest(replayable);
       // Tell the UI a mutation is now queued (offline / will-sync state).
-      notifyClients("sync-error");
+      // Await delivery so the request cannot finish before Datastar receives
+      // the event that resets its pending UI state.
+      await notifyClients("sync-error");
       // Register a Background Sync event if supported.
       if (self.registration && self.registration.sync) {
         self.registration.sync.register("pb-sync").catch(function () {});
@@ -149,20 +154,14 @@ async function networkFirstWithQueue(request) {
       // Queue failed — the mutation is lost. In practice this only
       // happens if IndexedDB is unavailable (private browsing, disk full).
     }
-    // Return a Datastar-format fragment that:
-    //   1. appends an offline toast into the styled #toast-container stack
-    //      (falls back to <body> on pages without that container)
-    //   2. dispatches the same `gogogo:queued` window event the
-    //      offline-banner uses, so any UI element bound to that
-    //      listener (e.g. createForm `$loading`/`$newTitle` reset) is
-    //      cleaned up. The offline-banner's SW postMessage bridge also
-    //      dispatches this event, so the reset is guaranteed even if
-    //      this fragment's script is somehow missed.
+    // Return a Datastar-format fragment that appends an offline toast into
+    // the styled #toast-container stack (falling back to <body> on pages
+    // without that container). The awaited service-worker postMessage above
+    // is the single source of the `gogogo:queued` UI-reset event.
     //
     // A bare 202/JSON response was insufficient: Datastar's @post helper
-    // applied NO patch on a non-fragment response and the loading spinner
-    // stuck forever. Returning a fragment makes @post run the same patch
-    // path as a regular response, which executes the inline script.
+    // applied no patch and the loading spinner stuck forever. Returning a
+    // fragment completes Datastar's normal HTML patch path and shows feedback.
     //
     // The toast HTML reuses the same DaisyUI surface as in-process toasts.
     // Using literal HTML keeps the SW self-contained (no compile step).
@@ -253,20 +252,33 @@ async function deletePending(id) {
 }
 
 // ---- Background Sync ----
+// Background Sync is best-effort and is not available in every browser.
+// Serialize every trigger so a browser sync event and an explicit page
+// reconnect message cannot replay the same queue concurrently.
+var replayPromise = null;
+
+function requestReplay() {
+  if (!replayPromise) {
+    replayPromise = replayQueue().finally(function () {
+      replayPromise = null;
+    });
+  }
+  return replayPromise;
+}
+
 self.addEventListener("sync", function (e) {
   if (e.tag === "pb-sync") {
-    e.waitUntil(replayQueue());
+    e.waitUntil(requestReplay());
   }
 });
 
-// Fallback for browsers without the Background Sync API (Firefox, Safari):
-// when connectivity returns, drain the queue ourselves. Browsers that DO
-// support Background Sync fire the `sync` event instead, so we skip the
-// manual drain there to avoid a double replay. (Server-side idem_key still
-// de-duplicates regardless, so a rare double replay is harmless.)
-self.addEventListener("online", function () {
-  if (self.registration && self.registration.sync) return;
-  replayQueue();
+// The window receives reliable online events; ServiceWorkerGlobalScope does
+// not. Pages explicitly request a replay on reconnect, covering browsers and
+// headless contexts where Background Sync is absent or delayed.
+self.addEventListener("message", function (e) {
+  if (e.data && e.data.type === "replay-queue") {
+    e.waitUntil(requestReplay());
+  }
 });
 
 async function replayQueue() {
@@ -279,7 +291,7 @@ async function replayQueue() {
   if (items.length === 0) return;
 
   // Replay starting — switch the UI to the "syncing" state.
-  notifyClients("sync-start");
+  await notifyClients("sync-start");
 
   var remaining = 0;
   for (var i = 0; i < items.length; i++) {
@@ -316,5 +328,5 @@ async function replayQueue() {
   }
 
   // Replay finished: online if nothing left, offline if items remain.
-  notifyClients(remaining === 0 ? "sync-end" : "sync-error");
+  await notifyClients(remaining === 0 ? "sync-end" : "sync-error");
 }

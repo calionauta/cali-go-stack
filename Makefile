@@ -116,9 +116,9 @@ ci-local: templ datastar-lint css-check
 	@node scripts/smoke.mjs
 	@echo "✅ ci-local passed"
 
-# smoke boots the built binary in a headless browser and fails on any uncaught
-# client-side JS error (ReferenceError / TypeError / pageerror) — the gate
-# that catches the "offlineSync is not defined" class of error before deploy.
+# smoke boots the built binary in a headless browser, fails on uncaught client
+# errors, and exercises offline todo add/delete through IndexedDB + reconnect
+# replay. This catches both script-rendering and offline-queue regressions.
 # Requires `npx playwright install chromium` (run automatically here).
 smoke:
 	@echo "→ Browser smoke test (Playwright)…"

@@ -21,6 +21,8 @@
 // where the SW did not register.
 package components
 
+import "strconv"
+
 // OfflineBanner renders the sticky top banner for transport state. Pass
 // offlineSync=false to switch to honest online-only copy when the SW +
 // queue are disabled.
@@ -29,6 +31,7 @@ templ OfflineBanner(offlineSync bool) {
 		id="offline-banner"
 		class="hidden fixed top-0 left-0 right-0 z-[101] text-center text-xs py-1 px-2"
 		data-component="offline-banner"
+		data-offline-sync={ strconv.FormatBool(offlineSync) }
 		aria-live="polite"
 	>
 		<span id="offline-banner-text">Online</span>
@@ -53,12 +56,10 @@ templ OfflineBanner(offlineSync bool) {
 			var text = document.getElementById("offline-banner-text");
 			if (!banner || !text) return;
 
-			// Interpolate inside a string literal: a bare `{offlineSync}` in a
-			// <script> is parsed by Templ as a JS block/object literal and is
-			// NOT substituted, which makes `offlineSync` an undefined JS
-			// variable and breaks the whole IIFE. Quoting forces Templ string
-			// interpolation.
-			var OFFLINE_SYNC = "{offlineSync}" === "true";
+			// Templ does not interpolate Go expressions inside script text.
+			// Render the flag as an HTML data attribute (where Templ's typed
+			// interpolation is guaranteed) and read it from the element.
+			var OFFLINE_SYNC = banner.dataset.offlineSync === "true";
 
 			function setState(state) {
 				var cls = "is-" + state;
@@ -83,11 +84,9 @@ templ OfflineBanner(offlineSync bool) {
 					else if (data.type === "sync-error") {
 						setState("offline");
 						// Notify Datastar consumers: a mutation just queued
-						// offline, so any form that set $loading=true before
-						// posting needs to clear it. The SW's queued fragment
-						// also dispatches this event from its inline <script>,
-						// but this postMessage bridge is the guaranteed reset
-						// path (it fires whenever the SW intercepted the request).
+						// offline, so forms that set a pending signal before
+						// posting can reset immediately. This SW postMessage is
+						// awaited before the intercepted request completes.
 						window.dispatchEvent(new CustomEvent("gogogo:queued"));
 					}
 				});
@@ -100,8 +99,18 @@ templ OfflineBanner(offlineSync bool) {
 				setState(navigator.onLine ? "online" : "offline");
 			}
 			window.addEventListener("online", function () {
-				// 500ms delay: SW needs a tick to post sync-end first.
-				setTimeout(updateOnline, 500);
+				if (OFFLINE_SYNC && navigator.serviceWorker) {
+					navigator.serviceWorker.ready.then(function (registration) {
+						if (registration.active) {
+							registration.active.postMessage({ type: "replay-queue" });
+						}
+					}).catch(function () {});
+				}
+				// Give replayQueue a tick to publish sync-start. Do not overwrite
+				// its syncing state while queued mutations are still draining.
+				setTimeout(function () {
+					if (!banner.classList.contains("is-syncing")) updateOnline();
+				}, 500);
 			});
 			window.addEventListener("offline", updateOnline);
 			updateOnline();
