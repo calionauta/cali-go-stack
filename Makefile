@@ -6,7 +6,7 @@ COMMIT      := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILDTIME   := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 LDFLAGS     := -ldflags="-w -X main.Version=$(VERSION) -X main.CommitHash=$(COMMIT) -X main.BuildTime=$(BUILDTIME)"
 
-.PHONY: all build desktop wails-build run clean restart templ fmt css css-install datastar-lint test lint vet check-sizes deadcode ci-local signoff deps dev docker-image setup help
+.PHONY: all build desktop wails-build run clean restart templ fmt css css-install datastar-lint test lint vet check-sizes deadcode ci-local signoff deps dev docker-image setup help smoke
 
 all: build
 
@@ -111,7 +111,19 @@ ci-local: templ datastar-lint css-check
 	@go test -race -p 1 ./... -count=1
 	@echo "→ build"
 	@go build $(LDFLAGS) -o /dev/null ./cmd/web/
+	@echo "→ browser smoke test (Playwright)"
+	@npx playwright install chromium
+	@node scripts/smoke.mjs
 	@echo "✅ ci-local passed"
+
+# smoke boots the built binary in a headless browser and fails on any uncaught
+# client-side JS error (ReferenceError / TypeError / pageerror) — the gate
+# that catches the "offlineSync is not defined" class of error before deploy.
+# Requires `npx playwright install chromium` (run automatically here).
+smoke:
+	@echo "→ Browser smoke test (Playwright)…"
+	@npx playwright install chromium
+	@node scripts/smoke.mjs
 
 # signoff runs the full local CI then stamps the current commit green via
 # the gh-signoff extension (basecamp/gh-signoff). This lets you skip

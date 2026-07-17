@@ -6,6 +6,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/pocketbase/pocketbase"
@@ -39,6 +40,7 @@ func Init(
 		Priority: -100,
 		Func: func(se *core.ServeEvent) error {
 			se.Router.BindFunc(auth.LoadAuthFromCookie)
+			se.Router.BindFunc(noCacheHTML)
 			return se.Next()
 		},
 	})
@@ -207,6 +209,25 @@ func Init(
 
 		return se.Next()
 	})
+}
+
+// noCacheHTML sets Cache-Control: no-cache on document (HTML) responses so
+// browsers and Cloudflare never serve a stale page after a deploy. Static
+// assets (/static/*) are content-hashed and API responses (/api/*) are
+// cached client-side by the service worker, so only the page HTML opts
+// out of caching. This prevents the "offlineSync is not defined" class of
+// error where a browser served an old cached page referencing a since-
+// renamed JS global (the SW only intercepts /api/*, so the stale HTML is
+// purely an HTTP/browser cache artifact).
+func noCacheHTML(c *core.RequestEvent) error {
+	p := c.Request.URL.Path
+	switch {
+	case strings.HasPrefix(p, "/api/"), strings.HasPrefix(p, "/static/"), p == "/sw.js", p == "/health":
+		// keep their own caching behaviour
+	default:
+		c.Response.Header().Set("Cache-Control", "no-cache")
+	}
+	return c.Next()
 }
 
 // buildTodoStore selects the persistence strategy for todo entities

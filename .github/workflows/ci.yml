@@ -59,3 +59,12 @@ jobs:
           go test -race -p 1 $PKGS -v -count=1
       - name: Build
         run: go build -o /dev/null ./cmd/web/
+      - name: Install Playwright browser
+        # `make css` above ran `npm ci`, which installs the playwright npm
+        # package (devDependency); this fetches the matching Chromium build.
+        run: npx playwright install chromium
+      - name: Browser smoke test
+        # Boots the built binary in headless Chromium and fails on any
+        # uncaught client-side JS error (the "offlineSync is not defined"
+        # class of error). See scripts/smoke.mjs.
+        run: node scripts/smoke.mjs
