@@ -101,26 +101,28 @@ func waitForHealthy(ctx context.Context, base string) error {
 	})
 }
 
-// assertPageWiresSSE checks the rendered / page opens the realtime stream.
+// assertPageWiresSSE checks the rendered /todo page opens the realtime
+// stream. (Pre-refactor: indexed at GET /; moved to /todo when the
+// landing-page refactor split marketing from app.)
 func assertPageWiresSSE(ctx context.Context, t *testing.T, base string) {
 	t.Helper()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/todo", nil)
 	if err != nil {
-		t.Fatalf("build / request: %v", err)
+		t.Fatalf("build /todo request: %v", err)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("GET /: %v", err)
+		t.Fatalf("GET /todo: %v", err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		t.Fatalf("read / body: %v", err)
+		t.Fatalf("read /todo body: %v", err)
 	}
 	html := string(body)
 	for _, want := range []string{`id="sse-opener"`, `datastar-ready`, `/api/todos/stream`} {
 		if !strings.Contains(html, want) {
-			t.Errorf("rendered / missing %q — the SSE opener wiring is broken; browsers would not connect", want)
+			t.Errorf("rendered /todo missing %q — the SSE opener wiring is broken; browsers would not connect", want)
 		}
 	}
 	if strings.Contains(html, "data-on:load=") {

@@ -57,12 +57,15 @@ func handleLoginGet(e *core.RequestEvent) error {
 }
 
 // handleLoginGetWithRedirect renders the login form unless the user is
-// already signed in, in which case it sends them to /. Folding the
-// redirect into the render handler keeps the route's middleware chain
-// flat (a single handler, no BindFunc composition).
+// already signed in, in which case it sends them to /todo. Folding
+// the redirect into the render handler keeps the route's middleware
+// chain flat (a single handler, no BindFunc composition).
+// (Pre-refactor: redirected to "/" which served the todo page.
+// After the landing-page refactor, "/" is the marketing hero —
+// signed-in users go to /todo instead.)
 func handleLoginGetWithRedirect(e *core.RequestEvent) error {
 	if e.Auth != nil {
-		return e.Redirect(http.StatusSeeOther, "/")
+		return e.Redirect(http.StatusSeeOther, "/todo")
 	}
 	return handleLoginGet(e)
 }
@@ -73,7 +76,9 @@ func handleLoginGetWithRedirect(e *core.RequestEvent) error {
 func renderLoginPageTo(e *core.RequestEvent, errMsg string) error {
 	next := e.Request.URL.Query().Get("next")
 	if next == "" {
-		next = "/"
+		// Default post-login destination is /todo (the demo app),
+		// not "/" (which is now the public landing page).
+		next = "/todo"
 	}
 	e.Response.Header().Set("Content-Type", "text/html; charset=utf-8")
 	e.Response.WriteHeader(http.StatusOK)

@@ -161,11 +161,14 @@ func RequireAuthOrRedirect(e *core.RequestEvent) error {
 	return e.Redirect(http.StatusSeeOther, "/login")
 }
 
-// RedirectIfAuthed sends already-signed-in users from /login to /
-// so they don't see a login form when they're already in.
+// RedirectIfAuthed sends already-signed-in users from /login to
+// /todo so they don't see a login form when they're already in.
+// (Pre-refactor: redirected to "/" which served the todo page.
+// After the landing-page refactor, "/" is the marketing hero and
+// is not the user's destination after authenticating — /todo is.)
 func RedirectIfAuthed(e *core.RequestEvent) error {
 	if e.Auth != nil {
-		return e.Redirect(http.StatusSeeOther, "/")
+		return e.Redirect(http.StatusSeeOther, "/todo")
 	}
 	return e.Next()
 }

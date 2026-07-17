@@ -173,7 +173,7 @@ func (h *TodoHandler) publishCrudOp(op nats.CrudOpType, userID string, data *nat
 
 // RegisterRoutes wires the HTTP routes on a PocketBase serve event.
 func (h *TodoHandler) RegisterRoutes(se *core.ServeEvent) {
-	se.Router.GET("/", h.handleIndex)
+	se.Router.GET("/todo", h.handleIndex)
 	se.Router.GET("/api/todos", h.handleList)
 	se.Router.GET("/api/todos/fragment", h.handleListFragment)
 	// POST routes pass through unchanged. Replay dedup happens at the
@@ -294,7 +294,7 @@ func (h *TodoHandler) handleIndex(c *core.RequestEvent) error {
 // that want to drive the handlers via httptest.NewServer without going
 // through PocketBase's serve command.
 func (h *TodoHandler) RegisterRoutesOn(r *router.Router[*core.RequestEvent]) {
-	r.GET("/", h.handleIndex)
+	r.GET("/todo", h.handleIndex)
 	r.GET("/api/todos", h.handleList)
 	r.GET("/api/todos/fragment", h.handleListFragment)
 	r.POST("/api/todos", h.handleCreate)

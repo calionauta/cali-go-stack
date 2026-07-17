@@ -15,6 +15,8 @@ import (
 
 	"github.com/calionauta/gogogo-fullstack-template/config"
 	"github.com/calionauta/gogogo-fullstack-template/features/auth"
+	cfgfeature "github.com/calionauta/gogogo-fullstack-template/features/config"
+	"github.com/calionauta/gogogo-fullstack-template/features/landing"
 	"github.com/calionauta/gogogo-fullstack-template/features/store"
 	"github.com/calionauta/gogogo-fullstack-template/features/store/crdtstore"
 	"github.com/calionauta/gogogo-fullstack-template/features/store/pbstore"
@@ -206,6 +208,20 @@ func Init(
 			registerCrudConsumer(se, js, cfg.AppName)
 		}
 		// Remove crud consumer: delete this line + delete internal/nats/crudproxy.go
+
+		// Landing page (public, GET /). Routes the marketing hero
+		// before any auth-protected routes so guest users see the
+		// README-sourced about copy and a CTA to /todo.
+		// Remove landing: delete this line + delete features/landing/
+		landing.New(cfg).RegisterRoutes(se)
+
+		// Config (read-only, GET /config). Operator-facing view of
+		// the running config with secret-shaped fields masked. Gated
+		// internally by RequireAuthOrRedirect so anonymous users are
+		// bounced to /login. Per the CAL-3 decision any logged-in
+		// user can view; superuser is NOT required.
+		// Remove config: delete this line + delete features/config/
+		cfgfeature.New(cfg).RegisterRoutes(se)
 
 		return se.Next()
 	})

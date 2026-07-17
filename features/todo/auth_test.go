@@ -7,10 +7,12 @@ import (
 	"testing"
 )
 
-// TestIntegration_Auth_GuestIsRedirectedToLogin asserts that the /
-// (home) route bounces unauthenticated visitors to /login. Mirrors
+// TestIntegration_Auth_GuestIsRedirectedToLogin asserts that the
+// /todo route bounces unauthenticated visitors to /login. Mirrors
 // the production behaviour from cmd/web/main.go, just exercised
-// through the test fixture.
+// through the test fixture. (Pre-refactor: this was checking GET /
+// which served the todo page; after the landing-page refactor, /
+// is the public marketing hero and /todo is the app's index.)
 func TestIntegration_Auth_GuestIsRedirectedToLogin(t *testing.T) {
 	ctx := t.Context()
 	base, _, _, _, cleanup := testFixture(t)
@@ -21,13 +23,13 @@ func TestIntegration_Auth_GuestIsRedirectedToLogin(t *testing.T) {
 			return http.ErrUseLastResponse
 		},
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/todo", nil)
 	if err != nil {
-		t.Fatalf("build GET /: %v", err)
+		t.Fatalf("build GET /todo: %v", err)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		t.Fatalf("GET /: %v", err)
+		t.Fatalf("GET /todo: %v", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -146,7 +148,7 @@ func TestIntegration_Auth_GoodCredentialsSetsCookie(t *testing.T) {
 		strings.NewReader(url.Values{
 			"email":    {demoEmail},
 			"password": {demoPassword},
-			"next":     {"/"},
+			"next":     {"/todo"},
 		}.Encode()))
 	if err != nil {
 		t.Fatalf("build POST /login: %v", err)

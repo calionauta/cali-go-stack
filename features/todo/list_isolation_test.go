@@ -114,7 +114,7 @@ func loginClient(t *testing.T, base string) *http.Client {
 	}
 	ctx := context.Background()
 	req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, base+"/login",
-		strings.NewReader(url.Values{"email": {demoEmail}, "password": {demoPassword}, "next": {"/"}}.Encode()))
+		strings.NewReader(url.Values{"email": {demoEmail}, "password": {demoPassword}, "next": {"/todo"}}.Encode()))
 	if reqErr != nil {
 		t.Fatalf("build login req: %v", reqErr)
 	}

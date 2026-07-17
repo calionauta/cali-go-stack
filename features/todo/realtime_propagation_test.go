@@ -225,13 +225,17 @@ func TestRealtimeResyncWiringRendered(t *testing.T) {
 	client := &http.Client{Jar: jar, Timeout: 15 * time.Second}
 	loginUser(ctx, t, client, base, demoEmail, demoPassword)
 
-	indexReq, indexReqErr := http.NewRequestWithContext(ctx, http.MethodGet, base+"/", nil)
+	// /todo is the demo app's HTML index (formerly at GET /; moved
+	// when the landing-page refactor split marketing page from app
+	// page). The page carries the PocketBase realtime wiring the
+	// test wants to verify.
+	indexReq, indexReqErr := http.NewRequestWithContext(ctx, http.MethodGet, base+"/todo", nil)
 	if indexReqErr != nil {
 		t.Fatalf("request: %v", indexReqErr)
 	}
 	resp, err := client.Do(indexReq)
 	if err != nil {
-		t.Fatalf("GET /: %v", err)
+		t.Fatalf("GET /todo: %v", err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
@@ -279,7 +283,7 @@ func TestRealtimeNoOrphanIIFE(t *testing.T) {
 	client := &http.Client{Jar: jar, Timeout: 15 * time.Second}
 	loginUser(ctx, t, client, base, demoEmail, demoPassword)
 
-	todosReq, todosReqErr := http.NewRequestWithContext(ctx, http.MethodGet, base+"/", nil)
+	todosReq, todosReqErr := http.NewRequestWithContext(ctx, http.MethodGet, base+"/todo", nil)
 	if todosReqErr != nil {
 		t.Fatalf("request: %v", todosReqErr)
 	}

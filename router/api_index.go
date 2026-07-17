@@ -36,6 +36,7 @@ func apiIndex(c *core.RequestEvent) error {
 		"health":             "/api/health",
 		"realtime":           "/api/realtime",
 		"superuserDashboard": "/_/",
+		"uiPages":            []string{"/", "/todo", "/whiteboard", "/config"},
 	}
 	return c.JSON(http.StatusOK, env)
 }
