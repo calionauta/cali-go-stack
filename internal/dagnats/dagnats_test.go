@@ -25,8 +25,8 @@ func startTestServer(t *testing.T, httpAddr, dataDir string) *Client {
 	srv := server.New(server.Config{
 		DataDir:       dataDir,
 		HTTPAddr:      httpAddr,
-		NATSPort:      -1, // ephemeral (nats-server: -1 = random port; 0 = no listener)
-		MaxStoreBytes: 256 << 20, // 256 MiB. The test workflow is tiny; 1 GiB was a needless reservation. A smaller store boots the engine lighter, which helps when several packages run their engines under -p 1.
+		NATSPort:      -1,        // ephemeral (nats-server: -1 = random port; 0 = no listener)
+		MaxStoreBytes: 256 << 20, // 256 MiB; the onboarding workflow persists almost nothing.
 	})
 
 	// Register the same task handlers the app uses (names must match the

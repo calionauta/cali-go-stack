@@ -11,14 +11,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pocketbase/pocketbase/core"
-
 	"github.com/calionauta/gogogo-fullstack-template/config"
 	"github.com/calionauta/gogogo-fullstack-template/features/auth"
 	"github.com/calionauta/gogogo-fullstack-template/features/store/crdtstore"
 	"github.com/calionauta/gogogo-fullstack-template/features/todo/handlers"
 	"github.com/calionauta/gogogo-fullstack-template/internal/nats"
 	"github.com/calionauta/gogogo-fullstack-template/internal/queue"
+	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
 )
 
@@ -42,7 +41,7 @@ func TestRepro_CRDT_CreateStuckLoading(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	key := make([]byte, 32)
-	if _, err := rand.Read(key); err != nil {
+	if _, err = rand.Read(key); err != nil {
 		t.Fatalf("rand key: %v", err)
 	}
 	cfg := &config.Config{
@@ -63,7 +62,7 @@ func TestRepro_CRDT_CreateStuckLoading(t *testing.T) {
 	// Production schema for todos: title, completed, created, updated,
 	// owner (text id), and idem_key (text) with the (idem_key, owner)
 	// unique index CRDTStore relies on for idempotent upserts.
-	if err := createTodosCollectionCRDT(app); err != nil {
+	if err = createTodosCollectionCRDT(app); err != nil {
 		mustReset(t, app)
 		os.RemoveAll(tmpDir)
 		t.Fatalf("create todos collection (crdt): %v", err)
@@ -77,7 +76,7 @@ func TestRepro_CRDT_CreateStuckLoading(t *testing.T) {
 	}
 
 	cs := crdtstore.New(app)
-	if err := cs.EnsureSchema(); err != nil {
+	if err = cs.EnsureSchema(); err != nil {
 		t.Fatalf("crdt EnsureSchema: %v", err)
 	}
 
