@@ -1,3 +1,12 @@
+## [0.23.3] - 2026-07-18
+
+### Added
+- AI Suggest stepper for todos: signal-key driven UI state (aiStep/aiPending) and an AIPhase stepper field on todo.Signals, with SSE progress streaming and LLM integration plumbing in internal/llm.
+
+### Fixed
+- Build: correct AiPhase -> AIPhase struct-literal field on todo.Signals.
+- CI lint: extract retrySignalFields/retryToastMessage helpers to bring streamRetry cyclomatic complexity under the gocyclo limit; gofumpt-format signal_keys.go.
+
 
 
 ## [0.23.2] - 2026-07-18
