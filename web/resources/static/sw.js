@@ -22,6 +22,7 @@
 // database. See docs/decisions.md for the full rationale.
 
 var CACHE_NAME = "pb-api-v1";
+var PAGE_CACHE = "gogogo-pages-v1";
 var API_PREFIX = "/api/";
 
 // SSE and whiteboard paths that must NOT be intercepted.
@@ -47,7 +48,7 @@ self.addEventListener("activate", function (e) {
       caches.keys().then(function (keys) {
         return Promise.all(
           keys
-            .filter(function (k) { return k !== CACHE_NAME; })
+            .filter(function (k) { return k !== CACHE_NAME && k !== PAGE_CACHE; })
             .map(function (k) { return caches.delete(k); })
         );
       })
@@ -74,8 +75,15 @@ function notifyClients(state) {
 self.addEventListener("fetch", function (e) {
   var url = new URL(e.request.url);
 
-  // Only intercept API calls on our own origin.
   if (url.origin !== self.location.origin) return;
+
+  // Navigation requests (HTML page loads): network-first with cache
+  // fallback so previously visited pages work offline.
+  if (e.request.mode === "navigate") {
+    e.respondWith(networkFirstPage(e.request));
+    return;
+  }
+
   if (!url.pathname.startsWith(API_PREFIX)) return;
 
   // Skip SSE/stream/whiteboard endpoints.
@@ -126,6 +134,40 @@ async function staleWhileRevalidate(request) {
       { status: 503, headers: { "Content-Type": "application/json" } }
     );
   }
+}
+
+// ---- Navigation (HTML pages): network-first with cache fallback ----
+// Navigation requests are NOT intercepted by the API handlers above, so
+// when the browser is offline and the user navigates to a new URL they
+// get ERR_INTERNET_DISCONNECTED. This handler caches each page on first
+// visit and serves the cached copy when offline. Pages never visited
+// before show a generic offline message instead of a browser error page.
+//
+// Cache is NOT shared across users: we only cache basic responses (not
+// redirects to /login), and the client clears the cache on logout via
+// the "clear-pages" postMessage (see the message handler below).
+
+var OFFLINE_PAGE = '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Offline</title><style>body{font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#1d232a;color:#a6adbb;text-align:center;padding:1rem}@media(prefers-color-scheme:light){body{background:#fff;color:#374151}}h1{font-size:1.5rem;margin-bottom:.5rem}p{font-size:.875rem;line-height:1.5;max-width:24rem}</style></head><body><div><h1>You are offline</h1><p>This page has not been visited before, or the cached version expired. Connect to the internet and try again.</p></div></body></html>';
+
+function networkFirstPage(request) {
+  return fetch(request)
+    .then(function (response) {
+      if (response.ok && response.type === "basic") {
+        caches.open(PAGE_CACHE).then(function (cache) {
+          cache.put(request, response.clone());
+        }).catch(function () {});
+      }
+      return response;
+    })
+    .catch(function () {
+      return caches.match(request).then(function (cached) {
+        if (cached) return cached;
+        return new Response(OFFLINE_PAGE, {
+          status: 200,
+          headers: { "Content-Type": "text/html; charset=utf-8" }
+        });
+      });
+    });
 }
 
 // ---- POST/PUT/PATCH/DELETE: network-first with offline queue ----
@@ -379,6 +421,13 @@ self.addEventListener("sync", function (e) {
 self.addEventListener("message", function (e) {
   if (e.data && e.data.type === "replay-queue") {
     e.waitUntil(requestReplay());
+  }
+  // Clear cached pages on logout so a different user on a shared device
+  // does not receive stale authenticated pages. The auth Navbar's logout
+  // form posts to /logout; the page reloads after the response, but the
+  // cached HTML is already gone. See auth/views.templ.
+  if (e.data && e.data.type === "clear-pages") {
+    caches.delete(PAGE_CACHE).catch(function () {});
   }
 });
 

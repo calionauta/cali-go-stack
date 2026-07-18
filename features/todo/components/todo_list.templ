@@ -56,17 +56,11 @@ templ TodoList(signals todo.Signals) {
 						</p>
 					</div>
 				</div>
-				<div class="flex items-center gap-2" data-show="$connectedClients >= 0">
-					<!-- animated live dot -->
-					<span class="relative flex h-2.5 w-2.5">
-						<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
-						<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-success"></span>
-					</span>
-					<span class="text-xs text-base-content/50">
-						<span data-text="$connectedClients + ' online'"></span>
-						<span class="hidden sm:inline"> · <span data-text="$realtimeKind"></span></span>
-					</span>
-				</div>
+				<span class="online-pill" data-show="$connectedClients >= 0">
+					<span class="pulse-dot"></span>
+					<span data-text="$connectedClients + ' online'"></span>
+					<span class="hidden sm:inline"> · <span data-text="$realtimeKind"></span></span>
+				</span>
 			</div>
 
 			<!-- ═══════════════ MAIN GRID ═══════════════ -->

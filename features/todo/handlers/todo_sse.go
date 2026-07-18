@@ -159,7 +159,7 @@ type retryEvent struct {
 	Attempt   int    `json:"attempt"`
 	Status    string `json:"status"`
 	Error     string `json:"error"`
-	Raw       []byte `json:-`
+	Raw       []byte `json:"-"`
 }
 
 // retrySignalFields builds the Datastar signal map for a retry / AI-Suggest
