@@ -118,6 +118,18 @@
   background-color: var(--color-success);
   animation: online-pulse 1.6s ease-in-out infinite;
 }
+/* When the client is offline the realtime/SSE channel is down, so the
+   "X online" count is stale. Reflect that immediately (driven by
+   navigator.onLine in internal/components/offline_banner.templ) instead
+   of leaving a live-green pulsing dot that implies an active connection. */
+.online-pill.is-offline {
+  background-color: color-mix(in oklab, var(--color-warning) 15%, transparent);
+  color: var(--color-warning);
+}
+.online-pill.is-offline .pulse-dot {
+  background-color: var(--color-warning);
+  animation: none;
+}
 @keyframes online-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%      { opacity: 0.4; transform: scale(0.8); }

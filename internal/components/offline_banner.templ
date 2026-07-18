@@ -97,7 +97,28 @@ templ OfflineBanner(offlineSync bool) {
 			// coarse offline/online signal so users still see *something*.
 			function updateOnline() {
 				setState(navigator.onLine ? "online" : "offline");
+				// The realtime/SSE presence pill (".online-pill", rendered in
+				// the todo list, realtime card, and whiteboard) is fed only by
+				// server broadcasts and never learns about a client-side
+				// disconnect on its own — so it keeps showing the last "X
+				// online" count with a live-green pulse while offline. Tie it to
+				// navigator.onLine here so it greys out the moment the network
+				// drops (see the .online-pill.is-offline rule in app.css).
+				reflectPresence(navigator.onLine);
 			}
+
+			// Toggle the stale/offline styling on every presence pill. We only
+			// react to navigator.onLine (not the SW sync-* states): "syncing"
+			// means the connection is already back, so the live count should
+				// stay visible; a SW sync-error while actually online is just a
+			// queued mutation and must not blank the presence indicator.
+			function reflectPresence(online) {
+				var pills = document.querySelectorAll(".online-pill");
+				for (var i = 0; i < pills.length; i++) {
+					pills[i].classList.toggle("is-offline", !online);
+				}
+			}
+
 			window.addEventListener("online", function () {
 				if (OFFLINE_SYNC && navigator.serviceWorker) {
 					navigator.serviceWorker.ready.then(function (registration) {
