@@ -26,7 +26,7 @@ type BoardMeta struct {
 // PbRealtimeRecords: a hidden @get button + EventSource subscription.
 templ BoardListWithRealtime(email string, boards []BoardMeta, buildLabel string, buildCommit string, offlineSync bool) {
 	<!DOCTYPE html>
-	<html lang="en">
+	<html lang="en" data-signals="{theme: 'light'}" data-attr:data-theme="$theme" data-class:dark="$theme === 'dark'">
 		<head>
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -109,7 +109,7 @@ templ WhiteboardListFragment(boards []BoardMeta) {
 // events; drawing POSTs Loro updates back to the server.
 templ Board(email string, docID string, buildLabel string, buildCommit string, offlineSync bool) {
 	<!DOCTYPE html>
-	<html lang="en">
+	<html lang="en" data-signals="{theme: 'light'}" data-attr:data-theme="$theme" data-class:dark="$theme === 'dark'">
 		<head>
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>

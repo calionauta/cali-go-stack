@@ -104,7 +104,7 @@ templ Navbar(userEmail string, active string, buildLabel string, buildCommit str
 // the user just has to click "Sign in".
 templ LoginPage(next string, errMsg string) {
 	<!DOCTYPE html>
-	<html lang="en" data-theme="light">
+	<html lang="en" data-signals="{theme: 'light'}" data-attr:data-theme="$theme" data-class:dark="$theme === 'dark'">
 		<head>
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
