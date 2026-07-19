@@ -39,6 +39,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/calionauta/gogogo-fullstack-template/internal/secrets"
@@ -158,6 +159,20 @@ type GoAIConfig struct {
 // Load builds the Config. Order matters: secrets must be decrypted
 // BEFORE reading the rest of the env so admin/LLM/NATS values can
 // come from the encrypted file.
+// cached is the global config singleton, loaded once.
+var (
+	cached *Config
+	once   sync.Once
+)
+
+// Get returns the cached config singleton, loading it on first call.
+func Get() *Config {
+	once.Do(func() {
+		cached = Load()
+	})
+	return cached
+}
+
 func Load() *Config {
 	appName := os.Getenv("APP_NAME")
 	if appName == "" {

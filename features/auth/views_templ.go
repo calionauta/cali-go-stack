@@ -7,8 +7,6 @@ package auth
 
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
-import "github.com/calionauta/gogogo-fullstack-template/config"
-import "github.com/calionauta/gogogo-fullstack-template/web/skins"
 
 // Navbar is the top bar rendered on every authenticated page.
 // Shows the app name on the left, a user dropdown on the right with
@@ -142,7 +140,7 @@ func Navbar(userEmail string, active string, buildLabel string, buildCommit stri
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = skins.SkinSelector(config.Load().Skin).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = SkinSelector().Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

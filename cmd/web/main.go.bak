@@ -59,7 +59,7 @@ func main() {
 }
 
 func runHealthcheck() error {
-	cfg := config.Get()
+	cfg := config.Load()
 	cfg.BuildLabel = Version
 	cfg.BuildCommit = ShortCommit()
 	url := fmt.Sprintf("http://127.0.0.1:%d/health", cfg.Port)
@@ -79,7 +79,7 @@ func runHealthcheck() error {
 }
 
 func run() error {
-	cfg := config.Get()
+	cfg := config.Load()
 	cfg.BuildLabel = Version
 	cfg.BuildCommit = ShortCommit()
 
