@@ -254,7 +254,10 @@ func TodoMorpheusGrid(signals todo.Signals) templ.Component {
 	})
 }
 
-// createFormMorpheus is the input form with neo.TextInput + neo.Button.
+// createFormMorpheus is the input form. Uses native <input> for the
+// text field so Datastar's data-bind can access the value (web components
+// encapsulate the native input in shadow DOM, breaking data-bind).
+// Buttons and decorative elements still use <neo-*> components.
 func createFormMorpheus(signals todo.Signals) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -276,7 +279,7 @@ func createFormMorpheus(signals todo.Signals) templ.Component {
 			templ_7745c5c3_Var8 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<form data-on:submit__prevent=\"if (!$loading) { $loading = true; @post('/api/todos?clientID=' + encodeURIComponent($clientID || '') + '&idem_key=' + encodeURIComponent(crypto.randomUUID()), {contentType: 'form'}); }\" style=\"display: flex; gap: 0.5rem; margin-bottom: 1rem;\"><div style=\"flex: 1;\"><neo-textinput name=\"title\" placeholder=\"Add a new todo...\" data-bind=\"newTitle\" style=\"width: 100%;\"></neo-textinput></div><neo-button variant=\"primary\" data-attr:disabled=\"$loading || !$newTitle.trim()\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" style=\"margin-right: 0.25rem;\"><line x1=\"12\" y1=\"5\" x2=\"12\" y2=\"19\"></line><line x1=\"5\" y1=\"12\" x2=\"19\" y2=\"12\"></line></svg> <span data-show=\"!$loading\">Add</span> <span data-show=\"$loading\" style=\"display: inline-flex; align-items: center; gap: 0.25rem;\"><neo-spinner size=\"sm\"></neo-spinner> <span>Adding</span></span></neo-button></form>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<form data-on:submit__prevent=\"if (!$loading) { $loading = true; @post('/api/todos?clientID=' + encodeURIComponent($clientID || '') + '&idem_key=' + encodeURIComponent(crypto.randomUUID()), {contentType: 'form'}); }\" style=\"display: flex; gap: 0.5rem; margin-bottom: 1rem;\"><div style=\"flex: 1;\"><input type=\"text\" name=\"title\" placeholder=\"Add a new todo...\" data-bind=\"newTitle\" style=\"width: 100%; box-sizing: border-box; padding: 0.5rem 0.75rem; font-size: 0.875rem; border: 1px solid var(--page-border, #d6d3d1); border-radius: 0.375rem; background: var(--page-bg, #ffffff); color: var(--page-fg, #1c1917); font-family: inherit; outline: none;\"></div><neo-button variant=\"primary\" data-attr:disabled=\"$loading || !$newTitle.trim()\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" style=\"margin-right: 0.25rem;\"><line x1=\"12\" y1=\"5\" x2=\"12\" y2=\"19\"></line><line x1=\"5\" y1=\"12\" x2=\"19\" y2=\"12\"></line></svg> <span data-show=\"!$loading\">Add</span> <span data-show=\"$loading\" style=\"display: inline-flex; align-items: center; gap: 0.25rem;\"><neo-spinner size=\"sm\"></neo-spinner> <span>Adding</span></span></neo-button></form>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -389,13 +392,13 @@ func todoItemMorpheus(item todo.Todo) templ.Component {
 		var templ_7745c5c3_Var12 string
 		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.ResolveAttributeValue("todo-" + item.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/morpheus/todo_morpheus.templ`, Line: 174, Col: 45}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/morpheus/todo_morpheus.templ`, Line: 178, Col: 45}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var12)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "\" style=\"display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; border-bottom: 1px solid var(--neo-color-border, #e7e5e4);\"><neo-checkbox")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "\" style=\"display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; border-bottom: 1px solid var(--neo-color-border, #e7e5e4);\"><input type=\"checkbox\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -405,20 +408,20 @@ func todoItemMorpheus(item todo.Todo) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, " data-on:click__prevent=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, " style=\"width: 1rem; height: 1rem; cursor: pointer; accent-color: var(--page-fg, #1c1917);\" data-on:click__prevent=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var13 string
 		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/api/todos/" + item.ID + "/toggle')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/morpheus/todo_morpheus.templ`, Line: 180, Col: 72}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/morpheus/todo_morpheus.templ`, Line: 185, Col: 72}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var13)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "\"></neo-checkbox> ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "\"> ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -430,7 +433,7 @@ func todoItemMorpheus(item todo.Todo) templ.Component {
 			var templ_7745c5c3_Var14 string
 			templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(item.Title)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/morpheus/todo_morpheus.templ`, Line: 183, Col: 120}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/morpheus/todo_morpheus.templ`, Line: 188, Col: 120}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 			if templ_7745c5c3_Err != nil {
@@ -448,7 +451,7 @@ func todoItemMorpheus(item todo.Todo) templ.Component {
 			var templ_7745c5c3_Var15 string
 			templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(item.Title)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/morpheus/todo_morpheus.templ`, Line: 185, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/morpheus/todo_morpheus.templ`, Line: 190, Col: 38}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 			if templ_7745c5c3_Err != nil {
@@ -466,7 +469,7 @@ func todoItemMorpheus(item todo.Todo) templ.Component {
 		var templ_7745c5c3_Var16 string
 		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(timeAgo(item.CreatedAt))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/morpheus/todo_morpheus.templ`, Line: 187, Col: 112}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/morpheus/todo_morpheus.templ`, Line: 192, Col: 112}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 		if templ_7745c5c3_Err != nil {
@@ -479,7 +482,7 @@ func todoItemMorpheus(item todo.Todo) templ.Component {
 		var templ_7745c5c3_Var17 string
 		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue("$confirmingDeleteId = " + safeJSStringMorpheus(item.ID) + "; $confirmingDeleteTitle = " + safeJSStringMorpheus(item.Title) + "")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/morpheus/todo_morpheus.templ`, Line: 189, Col: 156}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/morpheus/todo_morpheus.templ`, Line: 194, Col: 156}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 		if templ_7745c5c3_Err != nil {
@@ -527,7 +530,7 @@ func SuggestionsMorpheus(suggestions []string) templ.Component {
 			var templ_7745c5c3_Var19 string
 			templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.ResolveAttributeValue("$newTitle = " + safeJSStringMorpheus(s))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/morpheus/todo_morpheus.templ`, Line: 207, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/morpheus/todo_morpheus.templ`, Line: 212, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var19)
 			if templ_7745c5c3_Err != nil {
@@ -540,7 +543,7 @@ func SuggestionsMorpheus(suggestions []string) templ.Component {
 			var templ_7745c5c3_Var20 string
 			templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(s)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/morpheus/todo_morpheus.templ`, Line: 208, Col: 8}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/morpheus/todo_morpheus.templ`, Line: 213, Col: 8}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 			if templ_7745c5c3_Err != nil {
@@ -668,7 +671,7 @@ func realtimeMorpheus() templ.Component {
 		var templ_7745c5c3_Var24 string
 		templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.ResolveAttributeValue("@get('/api/todos/stream?clientID=' + encodeURIComponent(window.__gogogoClientID || '') + '', { permanent: true })")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/morpheus/todo_morpheus.templ`, Line: 368, Col: 133}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/morpheus/todo_morpheus.templ`, Line: 373, Col: 133}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var24)
 		if templ_7745c5c3_Err != nil {

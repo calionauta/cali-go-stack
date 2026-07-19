@@ -110,17 +110,21 @@ templ TodoMorpheusGrid(signals todo.Signals) {
 	</div>
 }
 
-// createFormMorpheus is the input form with neo.TextInput + neo.Button.
+// createFormMorpheus is the input form. Uses native <input> for the
+// text field so Datastar's data-bind can access the value (web components
+// encapsulate the native input in shadow DOM, breaking data-bind).
+// Buttons and decorative elements still use <neo-*> components.
 templ createFormMorpheus(signals todo.Signals) {
 	<form data-on:submit__prevent="if (!$loading) { $loading = true; @post('/api/todos?clientID=' + encodeURIComponent($clientID || '') + '&idem_key=' + encodeURIComponent(crypto.randomUUID()), {contentType: 'form'}); }"
 		style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
 		<div style="flex: 1;">
-			<neo-textinput
+			<input
+				type="text"
 				name="title"
 				placeholder="Add a new todo..."
 				data-bind="newTitle"
-				style="width: 100%;"
-			></neo-textinput>
+				style="width: 100%; box-sizing: border-box; padding: 0.5rem 0.75rem; font-size: 0.875rem; border: 1px solid var(--page-border, #d6d3d1); border-radius: 0.375rem; background: var(--page-bg, #ffffff); color: var(--page-fg, #1c1917); font-family: inherit; outline: none;"
+			/>
 		</div>
 		<neo-button variant="primary"
 			data-attr:disabled="$loading || !$newTitle.trim()">
@@ -173,12 +177,13 @@ templ todoListMorpheus(signals todo.Signals) {
 templ todoItemMorpheus(item todo.Todo) {
 	<div class="todo-item" id={"todo-" + item.ID}
 		style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; border-bottom: 1px solid var(--neo-color-border, #e7e5e4);">
-		<neo-checkbox
+		<input type="checkbox"
 			if item.Completed {
 				checked
 			}
+			style="width: 1rem; height: 1rem; cursor: pointer; accent-color: var(--page-fg, #1c1917);"
 			data-on:click__prevent={ "@post('/api/todos/" + item.ID + "/toggle')" }
-		></neo-checkbox>
+		/>
 		if item.Completed {
 			<span style="flex: 1; text-decoration: line-through; color: var(--neo-color-muted-foreground, #78716c);">{ item.Title }</span>
 		} else {
