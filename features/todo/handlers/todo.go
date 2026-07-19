@@ -30,6 +30,7 @@ import (
 	"github.com/calionauta/gogogo-fullstack-template/internal/llm"
 	"github.com/calionauta/gogogo-fullstack-template/internal/nats"
 	"github.com/calionauta/gogogo-fullstack-template/internal/queue"
+	morpheus "github.com/calionauta/gogogo-fullstack-template/web/skins/morpheus"
 )
 
 // HTTP status codes used by the handlers. Centralized so the lint
@@ -253,9 +254,18 @@ func realtimeLabel(cfg *config.Config) string {
 // patch in the auth.Navbar + Layout. Requires login: guests are
 // bounced to /login by the RequireAuthOrRedirect middleware applied
 // in router.Init.
+//
+// Supports ?skin= query parameter to override the configured skin
+// (UI_SKIN env var), allowing per-request skin switching without
+// restarting the server.
 func (h *TodoHandler) handleIndex(c *core.RequestEvent) error {
 	if c.Auth == nil {
 		return c.Redirect(http.StatusSeeOther, "/login")
+	}
+	// Resolve skin: ?skin= query param overrides the env config.
+	skinName := h.cfg.Skin
+	if q := c.Request.URL.Query().Get("skin"); q != "" {
+		skinName = q
 	}
 	userEmail := ""
 	if c.Auth != nil {
@@ -282,11 +292,24 @@ func (h *TodoHandler) handleIndex(c *core.RequestEvent) error {
 		SidebarTab:       "queue",
 	}
 	c.Response.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Dispatch to skin-specific template.
+	// DaisyUI and BasecoatUI use the shared components.Layout.
+	// Morpheus uses a web component layout (neo.*).
+	if skinName == "morpheus" {
+		return morpheus.TodoPage(
+			"Todos — gogogo-fullstack-template",
+			signals, userEmail,
+			h.cfg.BuildLabel, h.cfg.BuildCommit,
+			h.cfg.OfflineSync.Enabled,
+			skinName,
+		).Render(c.Request.Context(), c.Response)
+	}
 	return components.Layout(
 		"Todos — gogogo-fullstack-template",
 		signals, userEmail,
 		h.cfg.BuildLabel, h.cfg.BuildCommit,
 		h.cfg.OfflineSync.Enabled,
+		skinName,
 	).Render(c.Request.Context(), c.Response)
 }
 

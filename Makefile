@@ -70,11 +70,24 @@ css: css-install
 	@npm run build --silent
 	@echo "  ✓ built web/resources/static/app.min.css"
 
+# css-basecoat builds the companion BasecoatUI (shadcn) stylesheet from
+# src/css/basecoat-input.css. Produces web/resources/static/basecoat.min.css
+# which is loaded at runtime when UI_SKIN=basecoat.
+css-basecoat: css-install
+	@echo "→ Building BasecoatUI CSS (shadcn-inspired)..."
+	@npx tailwindcss -i ./src/css/basecoat-input.css -o ./web/resources/static/basecoat.min.css --silent
+	@echo "  ✓ built web/resources/static/basecoat.min.css"
+
+# css-all builds both CSS skins at once. Called by CI and Docker build.
+css-all: css css-basecoat
+
 # css-check fails if the generated CSS is out-of-date. Used by the
 # pre-commit hook and CI to catch forgotten rebuilds.
-css-check: css
-	@git diff --quiet --exit-code web/resources/static/app.min.css || (echo "  ❌ CSS out of date. Run \`make css\` and re-commit."; exit 1)
+css-check: css-all
+	@git diff --quiet --exit-code web/resources/static/app.min.css || (echo "  ❌ app.min.css out of date. Run \`make css\` and re-commit."; exit 1)
+	@git diff --quiet --exit-code web/resources/static/basecoat.min.css || (echo "  ❌ basecoat.min.css out of date. Run \`make css-basecoat\` and re-commit."; exit 1)
 	@echo "  ✓ CSS is up to date"
+	@echo "  ✓ basecoat CSS is up to date"
 
 # fmt checks formatting with gofumpt + goimports (no --fast shortcuts).
 fmt:

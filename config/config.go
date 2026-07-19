@@ -25,6 +25,8 @@
 //	OFFLINE_SYNC_ENABLED (default: true) — toggle hybrid offline sync
 //	ENTITY_STORE         (default: "pb") — todo persistence strategy
 //	                       (see features/store/store.go)
+//	UI_SKIN              (default: "daisyui") — active UI skin: "daisyui", "basecoat", "morpheus"
+//	                       (see web/skins/)
 //
 // ── Runtime constants (tune in config.go, consumed across packages) ──
 //
@@ -136,6 +138,13 @@ type Config struct {
 	// is the only way to get multi-instance sync on crdt.
 	EntityStore string
 
+	// Skin selects the active UI skin. Default "daisyui" (the template's
+	// core theme). Other options: "basecoat" (shadcn-style) and "morpheus"
+	// (web components, pre-alpha). The skin is resolved at runtime by the
+	// skin dispatcher in web/skins/. All skins are compiled into the
+	// binary; there is no build-tag selection.
+	Skin string
+
 	GoAI GoAIConfig
 }
 
@@ -199,6 +208,7 @@ func Load() *Config {
 
 	cfg.OfflineSync.Enabled = envBool("OFFLINE_SYNC_ENABLED", true)
 	cfg.EntityStore = getEnv("ENTITY_STORE", "pb")
+	cfg.Skin = getEnv("UI_SKIN", "daisyui")
 
 	return cfg
 }

@@ -1,3 +1,21 @@
+## [0.24.0] - 2026-07-18
+
+### Added
+- **UI Skin Plugin** — pluggable skin system with runtime selector.
+  Three skins available: DaisyUI (core default), BasecoatUI (shadcn),
+  Morpheus (web components). Switch via `UI_SKIN` env var, `?skin=`
+  query param, or the dropdown in the navbar.
+  - `web/skins/` — skin registry, dispatcher, and selector component
+  - `config/config.go` — `UI_SKIN` env var (default `daisyui`)
+  - `features/todo/components/layout.templ` — dispatches skin assets
+  - `features/todo/handlers/todo.go` — `?skin=` query param support
+  - `src/css/basecoat-input.css` — shadcn-inspired CSS variables (OKLCH)
+  - `web/skins/morpheus/` — vendorized Morpheus bundle (SHA-pinned)
+  - `Makefile` — `css-basecoat`, `css-all` targets
+  - `Dockerfile` — builds both CSS skins
+
+  See [CHANGELOG](ui-skin-plugin-plan-v3.md) for the full design.
+
 ## [0.23.6] - 2026-07-18
 
 ### Fixed

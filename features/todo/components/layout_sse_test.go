@@ -35,7 +35,7 @@ func TestLayoutRendersSSEOpener(t *testing.T) {
 	var buf bytes.Buffer
 	if err := Layout(
 		"Todos", signals, "demo@example.com",
-		"test", "test0000", true,
+		"test", "test0000", true, "daisyui",
 	).Render(context.Background(), &buf); err != nil {
 		t.Fatalf("render layout: %v", err)
 	}
