@@ -7,6 +7,8 @@ package auth
 
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
+import "github.com/calionauta/gogogo-fullstack-template/config"
+import "github.com/calionauta/gogogo-fullstack-template/web/skins"
 
 // Navbar is the top bar rendered on every authenticated page.
 // Shows the app name on the left, a user dropdown on the right with

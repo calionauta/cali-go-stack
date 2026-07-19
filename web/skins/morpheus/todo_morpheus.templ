@@ -389,7 +389,7 @@ templ realtimeMorpheus() {
 	</script>
 	<script>
 		/* PocketBase realtime subscription (same as PbRealtimeRecords in the DaisyUI layout) */
-		(function(){var pbUrl="/api/todos/fragment";var sub=null;var rc=null;function connect(){if(sub)return;sub=new EventSource("/api/realtime");sub.addEventListener("PB_CONNECT",function(){rc=new EventSource("/api/realtime?sub=todos");rc.addEventListener("PB_RECORD",function(e){try{var d=JSON.parse(e.data);if(d.record&&d.action){var a=document.getElementById("todo-list");if(a&&window.datastar){window.datastar.actions.get(pbUrl);}}}});});}connect();})();
+		(function(){var pbUrl="/api/todos/fragment";var sub=null;var rc=null;function connect(){if(sub)return;sub=new EventSource("/api/realtime");sub.addEventListener("PB_CONNECT",function(){rc=new EventSource("/api/realtime?sub=todos");rc.addEventListener("PB_RECORD",function(e){try{var d=JSON.parse(e.data);if(d.record&&d.action){var a=document.getElementById("todo-list");if(a&&window.datastar){window.datastar.actions.get(pbUrl);}}}catch(e){}});});}connect();})();
 	</script>
 }
 
