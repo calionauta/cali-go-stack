@@ -48,6 +48,56 @@
   --card-foreground: oklch(0.145 0.004 49.33);
 }
 
+/* ─── DaisyUI compatibility aliases ─── */
+/* The shared templates (layout.templ + todo_list.templ) use DaisyUI
+   semantic color classes extensively. Basecoat uses shadcn-style names.
+   These utilities bridge the gap so the same template renders correctly
+   under both skins without duplicating the entire template tree. */
+@utility bg-base-100 {
+  background-color: var(--color-card);
+}
+@utility bg-base-200 {
+  background-color: var(--color-muted);
+}
+@utility bg-base-200\/40 {
+  background-color: color-mix(in oklab, var(--color-muted) 40%, transparent);
+}
+@utility bg-base-300 {
+  background-color: var(--color-border);
+}
+@utility text-base-content {
+  color: var(--color-foreground);
+}
+@utility text-base-content\/30 {
+  color: color-mix(in oklab, var(--color-foreground) 30%, transparent);
+}
+@utility text-base-content\/40 {
+  color: color-mix(in oklab, var(--color-foreground) 40%, transparent);
+}
+@utility text-base-content\/50 {
+  color: color-mix(in oklab, var(--color-foreground) 50%, transparent);
+}
+@utility text-base-content\/60 {
+  color: color-mix(in oklab, var(--color-foreground) 60%, transparent);
+}
+@utility text-primary-content {
+  color: var(--color-primary-foreground);
+}
+@utility border-base-200 {
+  border-color: var(--color-border);
+}
+@utility border-base-300 {
+  border-color: var(--color-border);
+}
+@utility divide-base-200 {
+  border-color: var(--color-border);
+}
+@utility badge-ghost {
+  background-color: transparent;
+  color: var(--color-muted-foreground);
+  border: 1px solid var(--color-border);
+}
+
 /* Animation utilities */
 @keyframes motion-fade-in {
   from { opacity: 0; }

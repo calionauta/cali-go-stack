@@ -11,7 +11,9 @@ import templruntime "github.com/a-h/templ/runtime"
 // SkinSelector renders a dropdown for choosing the active UI skin.
 // It appears in the navbar and shows the current skin with a list
 // of available ones. Clicking a skin navigates to ?skin=<name>.
-// Uses inline styles so it works regardless of which skin CSS is loaded.
+// Uses inline styles with explicit fallback colors so it renders
+// correctly on every skin (daisyui, basecoat, morpheus) without
+// depending on any skin's CSS variables.
 func SkinSelector(current string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -40,13 +42,13 @@ func SkinSelector(current string) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(current)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/selector.templ`, Line: 13, Col: 40}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/selector.templ`, Line: 15, Col: 40}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</span></div><ul tabindex=\"0\" role=\"menu\" style=\"position:absolute;z-index:60;top:100%;right:0;margin-top:0.5rem;min-width:10rem;padding:0.25rem;list-style:none;border-radius:0.5rem;border:1px solid;background:var(--page-bg,var(--color-base-100,oklch(1 0 0)));color:var(--page-fg,var(--color-base-content,oklch(0.145 0 0)));border-color:var(--muted,var(--color-base-300,oklch(0.556 0 0 / 0.2)));box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);display:none\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</span></div><ul tabindex=\"0\" role=\"menu\" style=\"position:absolute;z-index:60;top:100%;left:0;margin-top:0.25rem;min-width:10rem;padding:0.25rem;list-style:none;border-radius:0.5rem;border:1px solid oklch(0.556 0 0 / 0.2);background:oklch(1 0 0);color:oklch(0.145 0 0);box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);display:none\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -58,20 +60,20 @@ func SkinSelector(current string) templ.Component {
 			var templ_7745c5c3_Var3 templ.SafeURL
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinURLErrs("?skin=" + name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/selector.templ`, Line: 18, Col: 30}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/selector.templ`, Line: 20, Col: 30}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\" style=\"display:block;padding:0.375rem 0.75rem;font-size:0.875rem;border-radius:0.375rem;text-decoration:none;color:inherit;transition:background 0.15s\" class:active=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\" style=\"display:block;padding:0.375rem 0.75rem;font-size:0.875rem;border-radius:0.375rem;text-decoration:none;color:oklch(0.145 0 0);transition:background 0.15s\" class:active=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(name == current)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/selector.templ`, Line: 19, Col: 36}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/selector.templ`, Line: 21, Col: 36}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 			if templ_7745c5c3_Err != nil {
@@ -84,20 +86,20 @@ func SkinSelector(current string) templ.Component {
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(name == current)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/selector.templ`, Line: 20, Col: 35}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/selector.templ`, Line: 22, Col: 35}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\" onmouseenter=\"this.style.background='var(--accent,var(--color-base-200,oklch(0.97 0 0)))'\" onmouseleave=\"this.style.background=''\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\" onmouseenter=\"this.style.background='oklch(0.97 0 0)'\" onmouseleave=\"this.style.background=''\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/selector.templ`, Line: 23, Col: 12}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/skins/selector.templ`, Line: 25, Col: 12}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {
