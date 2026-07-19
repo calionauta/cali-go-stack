@@ -26,7 +26,6 @@ templ TodoPage(title string, signals todo.Signals, userEmail string, buildLabel 
 		</head>
 		<body style="background: var(--neo-color-bg, #f5f5f4); margin: 0; min-height: 100vh; font-family: system-ui, -apple-system, sans-serif;">
 			@auth.Navbar(userEmail, "todo", buildLabel, buildCommit)
-			@skins.SkinSelector(skinName)
 			@components.OfflineBanner(offlineSync)
 
 			<div id="todo-app" class="todo-morpheus" style="max-width: 80rem; margin: 2rem auto 0; padding: 0 1rem;">
@@ -393,3 +392,4 @@ templ realtimeMorpheus() {
 		(function(){var pbUrl="/api/todos/fragment";var sub=null;var rc=null;function connect(){if(sub)return;sub=new EventSource("/api/realtime");sub.addEventListener("PB_CONNECT",function(){rc=new EventSource("/api/realtime?sub=todos");rc.addEventListener("PB_RECORD",function(e){try{var d=JSON.parse(e.data);if(d.record&&d.action){var a=document.getElementById("todo-list");if(a&&window.datastar){window.datastar.actions.get(pbUrl);}}}});});}connect();})();
 	</script>
 }
+
