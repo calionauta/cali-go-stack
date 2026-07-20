@@ -18,6 +18,7 @@
 - [Code quality for LLM agents](#code-quality-for-llm-agents)
 - [The example: Todo App with realtime](#the-example-todo-app-with-realtime)
 - [Adding your own feature](#adding-your-own-feature)
+- [UI skins (pluggable: DaisyUI / Basecoat / Morpheus)](#ui-skins-pluggable-daisyui--basecoat--morpheus)
 - [Admin & Dashboard](#admin--dashboard)
 - [Configuring the LLM (GoAI)](#configuring-the-llm-goai)
 - [Getting started](#getting-started)
@@ -52,7 +53,7 @@ Everything you need to build a modern web app, in a single binary:
 | **Database + Auth + API** | [PocketBase](https://pocketbase.io) (embedded, on `ncruces/go-sqlite3`) | Zero-config auth, REST, [admin UI at `/_/`](https://<your-domain>/_/), file storage — all in SQLite |
 | **Templating** | [Templ](https://templ.guide) | Type-safe Go components, generated at build time |
 | **Reactive UI** | [Datastar](https://data-star.dev) (SSE) | Server-rendered over SSE, single ~12 KiB client. CSS built once via Tailwind v4 CLI; no JS framework build step. |
-| **CSS** | [DaisyUI v5](https://daisyui.com) + TailwindCSS | Ready components, customizable, ~34kB minified |
+| **CSS / UI skin** | [DaisyUI v5](https://daisyui.com) (default) + TailwindCSS; pluggable skins: [BasecoatUI](https://basecoatui.com), Morpheus (web components). Switch at runtime via `UI_SKIN` or `?skin=` query | DaisyUI ~34 kB; Basecoat shadcn-style OKLCH tokens; Morpheus vendorized bundle. See [UI skins](#ui-skins-pluggable-daisyui--basecoat--morpheus). |
 | **Task queue** | [goqite](https://github.com/maragudk/goqite) + SSE Hub | Background jobs streamed to the browser, no Redis |
 | **Retries** | [avast/retry-go v4](https://github.com/avast/retry-go) | Exponential backoff with jitter, no boilerplate |
 | **Durable Workflows** | [DagNats](https://github.com/danmestas/dagnats) | Multi-step durable workflows as declarative JSON over NATS JetStream |
@@ -108,9 +109,13 @@ Every capability is always compiled. What you get:
 | Capability | Runtime opt-out | What it does |
 |-----------|----------------|--------------|
 | **Todo app + PocketBase realtime** | — | DB actions (create/toggle/delete) stream through PocketBase realtime, per-user scoped via `owner` rule. SSE Hub for ephemeral signals (toasts, clients count, AI suggest) |
-| **Queue + retry** | — | `goqite` background jobs + `retry-go` (the "Queue + Retry" demo) |
-| **AI Suggest** | `GOAI_API_KEY` unset | GoAI/Groq call from the todo UI; button hidden when no key |
+| **Queue + retry** | — | `goqite` background jobs + `retry-go` (the "Queue + Retry" demo). Stepper UI streamed via SSE; uses signal-set `techStep`/`techPhase` |
+| **AI Suggest** | `GOAI_API_KEY` unset | GoAI/Groq call from the todo UI; button hidden when no key. Stepper UI streamed via SSE; uses signal-set `aiStep`/`aiPhase` (kept independent from Queue + Retry's stepper signals) |
 | **Collaborative whiteboard** | — | Loro CRDT + Rough.js canvas, SSE + NATS broadcast, offline-first outbox replay, PocketBase-persisted snapshots |
+| **UI skins (pluggable)** | `UI_SKIN` | DaisyUI v5 (default), BasecoatUI (shadcn-style OKLCH tokens), or Morpheus (vendorized web components). Switch at runtime via `UI_SKIN` env var or `?skin=` query. See [UI skins](#ui-skins-pluggable-daisyui--basecoat--morpheus) |
+| **Landing page** | — | Public marketing page on `GET /` (the project tagline + a single CTA). Does NOT require auth, does NOT read the database. The todo demo moved from `/` to `/todo` |
+| **Read-only config view** | — | Auth-gated `GET /config` shows what the binary has decided to do (env-decrypted values, masked secrets, runtime constants). Never mutates state |
+| **Pluggable persistence** | `ENTITY_STORE` | `pb` (default, PocketBase records + admin UI works) or `crdt` (Loro per-owner doc + JetStream cross-instance transport). Same `EntityStore[T]` interface, swap via one env var |
 | **Multi-instance real-time** | `NATS_ENABLED=false` | NATS JetStream fan-out for todo + whiteboard sync across >1 instance behind a LB |
 | **Durable workflows** | `DAGNATS_ENABLED=false` | DagNats JSON workflows — HTTP API on `:8090`, durable state on JetStream `:4222` (e.g. `WelcomeOnboarding`) |
 | **Desktop-edge sync** | `NATS_LEAFNODE_URL` unset | Leaf-Node JetStream replication of Loro updates for desktop/edge clients |
@@ -125,8 +130,8 @@ Every file in the codebase carries a `SCOPE` annotation at the top to tell agent
 | Annotation | Meaning | Examples | You would… |
 |------------|---------|----------|------------|
 | `SCOPE:core` 🔴 | Binary does not work without it. Some have runtime opt-out via env vars. | `config/`, `db/`, `internal/queue/`, `internal/secrets/`, `features/auth/` (middleware), `router/`, `web/resources/` | Customize, never remove. |
-| `SCOPE:plugin` 🟡 | Binary works but loses a capability. Swap or delete with its wiring call. | `internal/datastar/`, `internal/nats/`, `internal/dagnats/`, `internal/llm/`, `internal/collab/` | Swap for another implementation, or delete the package + wiring call (e.g. `router.Init`, `cmd/web/main.go`). |
-| `SCOPE:feature` 🟢 | A demo/add-on. Delete the package + remove the wiring call. | `features/todo/`, `features/whiteboard/`, `router/onboarding_dagnats.go`, `router/realtime_jet.go` | Keep as reference while building your own, then remove. |
+| `SCOPE:plugin` 🟡 | Binary works but loses a capability. Swap or delete with its wiring call. | `internal/datastar/`, `internal/nats/`, `internal/dagnats/`, `internal/llm/`, `internal/collab/`, `internal/components/`, `features/store/`, `web/skins/` | Swap for another implementation, or delete the package + wiring call (e.g. `router.Init`, `cmd/web/main.go`). |
+| `SCOPE:feature` 🟢 | A demo/add-on. Delete the package + remove the wiring call. | `features/todo/`, `features/whiteboard/`, `features/landing/`, `features/config/`, `router/onboarding_dagnats.go`, `router/realtime_jet.go` | Keep as reference while building your own, then remove. |
 
 **Rule of thumb for agents:** If you see a `SCOPE` annotation on a file, respect it. Never delete a `SCOPE:core` file without asking. Never keep a `SCOPE:feature` file in production if the domain doesn't need it.
 
@@ -191,14 +196,14 @@ pushing. Same checks the remote CI runs.
 We ship a working Todo App:
 
 - Full CRUD via PocketBase
-- Reactive UI with Datastar + DaisyUI
+- Reactive UI with Datastar + the active skin (DaisyUI by default; BasecoatUI / Morpheus switchable via `UI_SKIN` or `?skin=` — see [UI skins](#ui-skins-pluggable-daisyui--basecoat--morpheus))
 - **Database actions stream through PocketBase realtime.** Todo `create`/`toggle`/`delete` fire PocketBase record events; each subscribed client re-fetches the fragment and morphs `#todo-list`. Delivery is per-user scoped by the collection's `owner` rule (`@request.auth.id != '' && owner = @request.auth.id`), so a client only receives events for its own records. The SSE Hub is reserved for ephemeral signals (success/retry toasts, live clients count, AI suggest) and the originating client's own synchronous patch.
 - Stacked toast notifications (auto-dismiss, manual close, progress bar)
 - Async jobs: `handleCreate` enqueues a `todo_created` job; a worker picks it up and streams a success toast to the right browser tab via the SSE Hub (`clientID` routing)
 - Retries with exponential backoff and jitter (`internal/queue/retry.go`, retry-go v4) — SSE-aware: a retry emits a `lastRetry` signal so the UI can show "retrying…"
 - `WelcomeOnboarding` DagNats workflow (always compiled) that creates 3 example todos via durable steps — kill the server mid-run, restart, watch it resume at the last incomplete step. The workflow is declarative JSON (`internal/dagnats/workflow.go`), so renaming Go handlers never orphans an in-flight run.
 - **Admin unlock** via `age` + `~/.secrets/`. The Todo example wires a master-password path: when `ADMIN_UNLOCK_TOKEN` is set (in the age-encrypted secrets file), the UI shows a "Clear all" form; the handler compares constant-time and clears all todos on match. Demonstrates the age flow end-to-end.
-- **AI suggest** via GoAI. When `GOAI_API_KEY` is set, the input gets a "Suggest" button that enqueues an async suggest job (see queue below) and streams the 3 completions back via SSE. It talks to whatever OpenAI-compatible provider `GOAI_BASE_URL`/`GOAI_MODEL` point at — see [Configuring the LLM](#configuring-the-llm-goai). Retries with exponential backoff use the same `internal/queue/retry.go` as the SSE toast path. For a **keyless** demo of the exact same queue + retry path, `SIMULATE_LLM` is on by default (opt out with `SIMULATE_LLM=false`): a "Suggest (simulated)" button enqueues a job that hits an in-process fake LLM scripting 500 → 200 + delay, so you can watch the retry feedback toasts (enqueued → attempt failed → slow → result).
+- **AI suggest** via GoAI. When `GOAI_API_KEY` is set, the input gets a "Suggest" button that enqueues an async suggest job (see queue below) and streams the 3 completions back via SSE. It talks to whatever OpenAI-compatible provider `GOAI_BASE_URL`/`GOAI_MODEL` point at — see [Configuring the LLM](#configuring-the-llm-goai). Retries with exponential backoff use the same `internal/queue/retry.go` as the SSE toast path. The stepper UI (`aiStep`/`aiPending`/`aiPhase` signals) is **kept independent** from the Queue + Retry demo's stepper signals (`techStep`/`techPhase`), so running one never lights the other. For a **keyless** demo of the exact same queue + retry path, `SIMULATE_LLM` is on by default (opt out with `SIMULATE_LLM=false`): a "Suggest (simulated)" button enqueues a job that hits an in-process fake LLM scripting 500 → 200 + delay, so you can watch the retry feedback toasts (enqueued → attempt failed → slow → result).
 - Tests run with `-race`
 
 > **This is the contract you should imitate when adding a new feature:**
@@ -222,12 +227,36 @@ Every feature in this template follows the same pattern. Use it as a blueprint w
 
 See the Todo feature for the full reference implementation.
 
+
+## UI skins (pluggable: DaisyUI / Basecoat / Morpheus)
+
+Every page in this template ships with a runtime-switchable UI skin. Three skins are compiled into the same binary; the active one is chosen per process via env, per request via query string, or interactively via the `SkinSelector` widget in the navbar.
+
+| Skin | What it is | CSS / JS |
+|------|-----------|----------|
+| **DaisyUI** (default) | The reference UI. Server-rendered DaisyUI v5 components over TailwindCSS, morph-friendly with Datastar | `app.min.css` |
+| **Basecoat** | [BasecoatUI](https://basecoatui.com) (a shadcn-style component lib) with shadcn-inspired OKLCH `@theme inline` color tokens, native Basecoat JS runtime (`basecoat.initAll`) debounced via `requestAnimationFrame` for Datastar DOM morphing | `basecoat.min.css` + `basecoat.min.js` |
+| **Morpheus** | Vendorized web-components bundle (SHA-pinned, `web/skins/morpheus/VENDOR_SHA`) that gives the todo demo a different visual treatment without DaisyUI | `morpheus/bundle.js` + theme CSS |
+
+**Three ways to switch:**
+
+1. **Env var (process-wide).** `UI_SKIN=basecoat ./gogogo-fullstack-template` switches the active skin for the lifetime of the binary.
+2. **Query string (per request).** Append `?skin=morpheus` to any route; the skin dispatcher reads it and renders that skin's assets without restart.
+3. **Interactive selector.** The navbar exposes a `SkinSelector` that updates a query param + reloads.
+
+**Plugin contract** (`web/skins/skin.go`). Every skin is a `Skin{Name, Assets}` value registered at init time via blank imports in `features/todo/components/skin_imports.go`. The dispatcher falls back to DaisyUI when the env value is unknown, logging a warning. Adding a fourth skin is: create `web/skins/<name>/`, register it from the import file, add a `make css-<name>` target. See `web/skins/daisyui/skin.go` for the minimal reference implementation (assets only, no Templ templates — those stay in the feature).
+
+**Removal.** Delete `web/skins/`, drop the blank imports in `features/todo/components/skin_imports.go`, drop the `SkinSelector` call from the navbar. The handler's lazy fallback returns DaisyUI assets when no skin is registered.
+
+
 ## Admin & Dashboard
 
-Two built-in admin surfaces, available as soon as the binary boots:
+Three built-in surfaces, available as soon as the binary boots:
 
 | Surface | URL | What it gives you |
 |---------|-----|-------------------|
+| **Landing page** | `/` | Public marketing hero (project tagline + CTA). Guests and signed-in users see the same page; no DB read, no auth gate |
+| **Read-only config view** | `/config` | Auth-gated view of the running binary: env-decrypted values, masked secrets, runtime constants. Never mutates state. Source: `features/config/` |
 | **PocketBase admin** | `/_/` | Data browser, REST playground, superuser management, backups, logs |
 | **DagNats console** | `:8090` | Workflow runs, step inspection, JSON API for durable workflows |
 
@@ -297,7 +326,7 @@ cd my-project
 make dev
 ```
 
-Open `http://localhost:8080` and see the Todo App running.
+Open `http://localhost:8080` for the landing page, then `http://localhost:8080/todo` for the demo (sign in with the seeded `demo@demo.app` / `demo`). The root URL is public; `/todo` is auth-gated; `/config` shows the running binary's configuration (auth-gated).
 
 > The default port is `8080` (override with `PORT`). The default branch is `master`.
 
@@ -322,20 +351,66 @@ make docker-image  # Build and push multi-arch image to ghcr.io
 
 ### Build pipeline
 
-The single compile step **outside** `go build` is the CSS build. It runs
-once in the Docker builder stage and the result is embedded into the Go
-binary via `//go:embed` — there is no runtime CSS build step, no JS
-runtime, and no CDN.
+The compile steps **outside** `go build` are the CSS bundles (one per
+skin) and the Go ldflags that bake the version badge into the binary.
+All assets are embedded into the Go binary via `//go:embed` — there is
+no runtime CSS build step, no JS runtime, and no CDN.
 
 ```
-src/css/input.css  →  tailwindcss v4 CLI  →  web/resources/static/app.min.css
-                                                    │
-                                                    └─ //go:embed in the Go binary
+src/css/input.css         →  tailwindcss v4 CLI  →  web/resources/static/app.min.css         (DaisyUI bundle)
+src/css/basecoat-input.css →  tailwindcss v4 CLI  →  web/resources/static/basecoat.min.css   (Basecoat bundle)
+                                                                            │
+                                              web/skins/morpheus/static/bundle.js            (Morpheus web components, vendorized, SHA-pinned)
+                                                                            │
+                                                                            └─ //go:embed in the Go binary
 ```
+
+The Makefile wires each skin's CSS build behind its own target:
+`make css` (DaisyUI, default), `make css-basecoat` (Basecoat),
+`make css-all` (all skins). The pre-commit hook regenerates
+`app.min.css` automatically whenever `.templ` or `.go` files change,
+and `make ci-local` includes a `css-check` step that fails the gate
+if the working CSS file is out of date.
 
 The pre-commit hook regenerates `app.min.css` automatically whenever
 `.templ` or `.go` files change, and `make ci-local` includes a `css-check`
 step that fails the gate if the working CSS file is out of date.
+
+### Version badge build metadata (ldflags + docker buildx)
+
+The navbar version badge (`features/todo/components/layout.templ`) shows
+`BuildLabel` (the git tag, e.g. `v0.24.8`) and `BuildCommit` (the short
+SHA). Both are baked into the binary at build time via Go `ldflags` and
+flow through the Docker image via `ARG`:
+
+```bash
+# Local build — the Makefile sets these automatically:
+make build
+#   VERSION  = git describe --tags --abbrev=0 | sed 's/^v//'   (e.g. 0.24.8; "dev" if no tags)
+#   COMMIT   = git rev-parse --short HEAD                       (e.g. d9c8010; "unknown" if no git)
+#   BUILDTIME = date -u +"%Y-%m-%dT%H:%M:%SZ"
+# LDFLAGS = -ldflags="-w -X main.Version=$VERSION -X main.CommitHash=$COMMIT -X main.BuildTime=$BUILDTIME"
+
+# Docker build (CI / deploy):
+docker buildx build --platform=linux/amd64,linux/arm64 \
+  --build-arg VERSION=$VERSION \
+  --build-arg COMMIT=$COMMIT \
+  --build-arg BUILDTIME=$BUILDTIME \
+  -t ghcr.io/calionauta/gogogo-fullstack-template:latest \
+  -t ghcr.io/calionauta/gogogo-fullstack-template:$VERSION \
+  --push .
+```
+
+The Dockerfile declares `ARG VERSION COMMIT BUILDTIME` at the stage top
+(not inline inside a `RUN` chain — that breaks Buildkit parse), then
+bakes them into the binary in the same `go build` step that produces
+the scratch image. The result: opening the running app, the navbar
+version badge matches the deploy commit, and you can byte-diff
+`app.min.css` or the binary itself against the tag to confirm.
+
+**Confirming a deploy.** The cheapest proof a fix is live:
+`diff <(curl https://<host>/static/app.min.css) <(git show HEAD:web/resources/static/app.min.css)`.
+For the version badge specifically: `diff <(curl https://<host>/api/version) <(echo $VERSION)`.
 
 ## Local CI (gh-signoff) — T5 of the feedback loop
 
@@ -549,12 +624,16 @@ internal/
 features/
   app/                            🔴 CORE  AppContext (cross-cutting deps bundle)
   auth/                           🔴 CORE  Login/logout/cookie (UI) + 🔴 middleware
-  store/                          🟡 PLUGIN  EntityStore interface (PB + CRDT strategies)
+  store/                          🟡 PLUGIN  EntityStore interface (PB + CRDT strategies). `ENTITY_STORE` selects impl.
+  landing/                        🟢 FEATURE  Public marketing hero on `GET /` (no auth, no DB read)
+  config/                         🟢 FEATURE  Auth-gated read-only `/config` view (masked secrets, runtime constants)
   todo/                           🟢 FEATURE  Todo MVC example (keep as reference)
     handlers/                       HTTP + SSE handlers, onboarding
     components/                     Templ components
   whiteboard/                     🟢 FEATURE  Collaborative canvas (remove if not needed)
-web/resources/                    🔴 CORE  Static assets (embedded JS)
+web/
+  resources/                      🔴 CORE  Static assets (embedded JS)
+  skins/                          🟡 PLUGIN  Pluggable UI skin registry (`UI_SKIN` / `?skin=`). Ships daisyui / basecoat / morpheus.
 router/                           🔴 CORE  Route wiring (central dependency graph)
 ```
 
@@ -566,6 +645,10 @@ router/                           🔴 CORE  Route wiring (central dependency gr
 | `DefaultClientQueueSize` | `config/config.go` | 64 | Per-client SSE channel buffer (was `internal/queue/ssehub.go`) |
 | `DefaultSSEHeartbeatInterval` | `config/config.go` | 15s | SSE heartbeat interval (was `internal/queue/ssehub.go`) |
 | `OfflineSync.Enabled` | `config/config.go` | `true` | Toggle hybrid offline-sync-online. Set `OFFLINE_SYNC_ENABLED=false` to opt out. |
+| `EntityStore` | `config/config.go` | `"pb"` | Pluggable persistence strategy: `pb` (PocketBase records, default) or `crdt` (Loro per-owner doc + JetStream). Set via `ENTITY_STORE` |
+| `Skin` | `config/config.go` | `"daisyui"` | Active UI skin: `daisyui` (default), `basecoat`, `morpheus`. Override per request with `?skin=` |
+| `BuildLabel` | `config/config.go` | `"dev"` | Git tag (e.g. `v0.24.8`) baked into the binary via `-ldflags="-X main.Version=..."`; surfaced on the navbar version badge |
+| `BuildCommit` | `config/config.go` | `"unknown"` | Short git SHA baked into the binary via `-ldflags="-X main.CommitHash=..."`; surfaced alongside `BuildLabel` |
 | `DefaultBaseURL` (GoAI) | `internal/llm/goai.go` | `https://api.openai.com/v1` | OpenAI-compatible base URL |
 | `DefaultModel` (GoAI) | `internal/llm/goai.go` | `gpt-4o-mini` | Default LLM model |
 

@@ -35,10 +35,12 @@ These are **product-level demos** — what the end user sees. All are Feature la
 | Feature | Package | SCOPE | Router wiring | Remove by |
 |---------|---------|:-----:|---------------|-----------|
 | **Auth** | `features/auth/` | 🟢/🔴 | `auth.RegisterAuth(se)` | Delete package + remove call |
+| **Landing page** | `features/landing/` | 🟢 FEATURE | `landing.New(cfg).RegisterRoutes(se)` (registered on `se.Router` directly) | Delete package + remove call. The todo demo is at `/todo`; root becomes 404 or your replacement. |
+| **Read-only config view** | `features/config/` | 🟢 FEATURE | `config.New(cfg).RegisterRoutes(se)` (registered on `se.Router` directly) | Delete package + remove call. Page is auth-gated; secrets are masked via `mask.go` before render. |
 | **Todo** | `features/todo/` | 🟢 FEATURE | `todoH.RegisterRoutes(se)` | Delete package + remove block |
 | **Whiteboard** | `features/whiteboard/` + `internal/collab/` | 🟢 FEATURE | `registerWhiteboard(se, q)` | Delete both + `whiteboard.js` + remove call |
 | **Onboarding** | `features/todo/handlers/onboarding.go` + `internal/dagnats/` | 🟢 FEATURE | `registerOnboarding(...)` | Delete both + remove call |
-| **EntityStore (persistence)** | `features/store/` (interface) + `features/store/pbstore/` (default impl) | 🟡 PLUGIN | `todoH.SetStore(pbstore.New(app, "todos"))` | Drop the `SetStore` call from `router.Init`; handler's lazy fallback (`h.st()`) rebuilds a PBStore. Add a new impl (e.g. `features/store/crdtstore/`) and switch the wire call — zero changes in the handlers. |
+| **EntityStore (persistence)** | `features/store/` (interface) + `features/store/pbstore/` (default impl) + `features/store/crdtstore/` (alternative) | 🟡 PLUGIN | `todoH.SetStore(pbstore.New(app, "todos"))` | Drop the `SetStore` call from `router.Init`; handler's lazy fallback (`h.st()`) rebuilds a PBStore. Switch strategy at runtime via `ENTITY_STORE=crdt` (see `config/config.go`). |
 
 > **⚠️ Auth is a mixed package.** The **login UI** (login page, navbar) is 🟢 FEATURE — replace with OAuth, SSO, etc. The **auth middleware** (`LoadAuthFromCookie`) is 🔴 CORE — the app's security model depends on it. They live in the same package for cohesion; if you replace the UI, keep the middleware functions.
 
@@ -60,6 +62,7 @@ These are the **plumbing layers**. Each is independently replaceable.
 | **SSE helpers** (Datastar) | `internal/datastar/` | 🟡 PLUGIN | Imported by handlers | Replace with your own SSE rendering |
 | **Secrets** (age) | `internal/secrets/` | 🔴 CORE | `secrets.Load(appName)` in `config.Load()` | Remove call; env vars work without it |
 | **LLM client** (GoAI) | `internal/llm/` | 🟡 PLUGIN | `llm.New(apiKey)` in `server.Run()` | Remove env var; UI auto-hides the Suggest button. *The package stays if you add your own AI feature — only the demo Suggest route is removable.* |
+| **UI skins** (pluggable) | `web/skins/` (`daisyui`, `basecoat`, `morpheus`) | 🟡 PLUGIN | Imported at init via `features/todo/components/skin_imports.go` blank imports; active skin read by `config.Skin` and `?skin=` query | Delete `web/skins/` directory + drop the blank imports in `skin_imports.go` + drop the `SkinSelector` call from the navbar. The handler's lazy fallback returns DaisyUI assets when no skin is registered. See [UI skins](#ui-skins). |
 
 > **🔴 CORE** = keep or replace the whole stack.  
 > **🟡 PLUGIN** = you could remove it and still serve pages, but lose cross-instance broadcast, async jobs, etc.  
@@ -158,6 +161,24 @@ The **whiteboard already uses Loro CRDT**. For the **todo feature**, SW + Backgr
 
 ---
 
+## UI skins (pluggable)
+
+The same UI is rendered through one of three pluggable skins, compiled into the same binary. The active skin is selected by `cfg.Skin` (env `UI_SKIN`, default `"daisyui"`) or per-request via the `?skin=` query string. The navbar exposes a `SkinSelector` widget that updates the query param and reloads.
+
+| Skin | Package | What it is | Source CSS |
+|------|---------|-----------|------------|
+| **DaisyUI** (default) | `web/skins/daisyui/` | DaisyUI v5 components over TailwindCSS; morph-friendly with Datastar | `src/css/input.css` → `app.min.css` |
+| **Basecoat** | `web/skins/basecoat/` | BasecoatUI (shadcn-style) with shadcn-inspired OKLCH `@theme inline` tokens; native Basecoat JS runtime (`basecoat.initAll`) debounced via `requestAnimationFrame` for Datastar DOM morphing | `src/css/basecoat-input.css` → `basecoat.min.css` + `basecoat.min.js` |
+| **Morpheus** | `web/skins/morpheus/` | Vendorized web-components bundle (SHA-pinned, `VENDOR_SHA`); gives the todo demo a different visual treatment without DaisyUI | `morpheus/bundle.js` + `morpheus.css` + `theme-default.css` |
+
+**Plugin contract** (`web/skins/skin.go`). Every skin is a `Skin{Name, Assets}` value registered at init time via blank imports in `features/todo/components/skin_imports.go`. The dispatcher falls back to DaisyUI when the env value is unknown, logging a warning. Adding a fourth skin is: create `web/skins/<name>/`, register it from the import file, add a `make css-<name>` Makefile target.
+
+**Skin-aware SSE patches.** Morpheus uses web components, not DaisyUI; some fragments need to render with the matching skin's HTML (e.g. morpheus todo cards). The skin dispatcher threads the active skin name into the SSE patch so `MergeSignals` + `RenderAndPatch` produce skin-correct markup. See `web/skins/morpheus/todo_morpheus.templ`.
+
+**Removal.** Delete `web/skins/`, drop the blank imports in `features/todo/components/skin_imports.go`, drop the `SkinSelector` call from the navbar. The handler's lazy fallback returns DaisyUI assets when no skin is registered.
+
+---
+
 ## Startup order (cmd/web/main.go)
 
 ```
@@ -201,24 +222,35 @@ New infra should go in `internal/<name>/`. Same pattern: create the package, wir
 ## File tree
 
 ```
-cmd/web/main.go            Entry point
-config/config.go           Env-based config
-db/pocketbase.go           PocketBase + seed
+cmd/web/main.go            Entry point (PB + goqite + SSE Hub + DagNats + NATS)
+config/config.go           Env-based config (incl. UI_SKIN, ENTITY_STORE, BUILD_LABEL/COMMIT)
+db/pocketbase.go           PocketBase + seed (incl. idempotency hook)
 features/                  Demo features (🟢 FEATURE, except auth middleware 🔴 + store 🟡)
   auth/                      Login/logout/cookie (UI 🟢, middleware 🔴)
+  landing/                   Public marketing hero on GET / (🟢 FEATURE)
+  config/                    Auth-gated read-only /config view (🟢 FEATURE, with masked secrets)
+  store/                     EntityStore interface (🟡 PLUGIN) + pbstore (default) + crdtstore (Loro)
   todo/                      Todo MVC (the reference implementation)
     handlers/                  HTTP routes + SSE stream + onboarding
-    components/                Templ components (layout, todo_item, toast) — offline indicator is the shared `OfflineBanner` in `internal/components/`
+    components/                Templ components (layout, todo_item, todo_list, skin_imports) — offline indicator is the shared `OfflineBanner` in `internal/components/`
   whiteboard/                Collaborative canvas
 internal/                  Infrastructure
   queue/                     goqite + SSE Hub + workers + retry + handler registry
-  nats/                      Embedded NATS + JetStream broadcaster
+  nats/                      Embedded NATS + JetStream broadcaster + CRUD proxy
   dagnats/                   DagNats client + workflow definitions
   collab/                    Loro CRDT + DocStore + sync workers + presence
-  llm/                       GoAI LLM client + simulated client
+  llm/                       GoAI LLM client + simulated client (SSE-streaming suggest)
   components/                Shared UI helpers (Toast + OfflineBanner offline indicator)
   datastar/                  Datastar SSE rendering helpers
   secrets/                   age-decrypted secrets loader
 router/router.go            Route wiring (central dependency graph)
-web/resources/static/       Embedded JS/CSS assets
+web/
+  resources/static/          Embedded JS/CSS assets (app.min.css, basecoat.min.css, morpheus/, sw.js, theme.js)
+  skins/                     Pluggable UI skin registry (daisyui + basecoat + morpheus) 🟡 PLUGIN
 ```
+
+### Routing notes
+
+- **`GET /api` and `GET /api/` are served EXACTLY** (registered with both forms on `se.Router`). PocketBase's subtree-matching path handling would otherwise let a trailing slash drift; serving both keeps the URL the PB admin UI advertises (`/_/`'s realtime banner shows `/api`) matching the actual endpoint.
+- **Static assets are exact-match only** (`/static/<file>`, no wildcards). PB's catch-all shadows anything more permissive; using exact routes prevents the next maintainer's regex from accidentally serving `web/resources/static/app.min.css.map` from the wrong origin.
+- **Page-style handlers register DIRECTLY on `se.Router`** inside the `OnServe` hook (todo, whiteboard, landing, config, SkinSelector). Nested `OnServe().BindFunc` calls **never fire** in PB's middleware chain — register at the top-level `OnServe` or use `se.Router.GET(...)` as every feature in this repo does.
