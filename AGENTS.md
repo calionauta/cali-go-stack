@@ -27,6 +27,8 @@ Skills: `cali-coding-go-standards` (code quality), `cali-code-navigation` (cymba
 | `make templ` | Generate Templ |
 | `make datastar-lint` | Lint `.templ` via datastar-lint (`-only-errors` keeps intentional custom attrs) |
 | `make css` / `make css-check` | Rebuild Tailwind/DaisyUI bundle; `css-check` compares against HEAD (used in `ci-local`) |
+| `make css-basecoat` | Rebuild the Basecoat skin bundle (`src/css/basecoat-input.css` → `web/resources/static/basecoat.min.css`) |
+| `make css-all` | Rebuild every skin's CSS bundle (DaisyUI + Basecoat). Morpheus ships vendorized, no rebuild needed |
 | `make ci-local` | **Single gate** (= CI): templ + datastar-lint + css-check + golangci-lint + race tests + build |
 | `make signoff` | `ci-local` + `gh signoff` stamp (advisory on push-to-master) |
 | `make setup` | Blocking pre-commit + pre-push hooks (pre-push adds `govulncheck`) |
@@ -38,7 +40,7 @@ Skills: `cali-coding-go-standards` (code quality), `cali-code-navigation` (cymba
 ## Don'ts
 
 - NO HTMX/Alpine — use Datastar. NO `fmt.Sprintf` for HTML — use Templ.
-- NO raw CSS class when a DaisyUI component exists. NO `log` — use `log/slog`.
+- NO raw CSS class when a DaisyUI component exists (for the DaisyUI skin; the Basecoat / Morpheus skins use their own component vocabulary — read the skin's own docs). NO `log` — use `log/slog`.
 - Driver is `ncruces/go-sqlite3` — never switch to PocketBase's bundled modernc as the active driver. (modernc is still pulled in by PocketBase but registers `sqlite` and stays unused; ncruces registers `sqlite3` and is what every query uses.) NO removing goqite when adding JetStream; they solve different problems.
 - NO manual `id` on PocketBase records (PK Max=15, `^[a-z0-9]+$`).
 - NO Datastar `PatchElements` whose top-level element lacks `id` + `WithSelector` (client throws `PatchElementsNoTargetsFound`). Use `internal/datastar.RenderAndPatch` paired with a selector.
@@ -228,12 +230,16 @@ internal/
   collab/                🟡 PLUGIN  Loro CRDT + DocStore + sync workers
   components/             🟡 PLUGIN  Shared UI helpers (Toast + OfflineBanner)
 features/
-  store/                 🟡 PLUGIN  EntityStore interface (PB + CRDT strategies)
+  store/                 🟡 PLUGIN  EntityStore interface (PB + CRDT strategies). Select via `ENTITY_STORE`.
   auth/                  🔴/🟢 CORE (middleware) / FEATURE (UI)
   app/                   🔴 CORE  AppContext (cross-cutting deps bundle)
+  landing/               🟢 FEATURE  Public marketing hero on GET /
+  config/                🟢 FEATURE  Auth-gated read-only /config view (masked secrets)
   todo/                  🟢 FEATURE  Todo MVC example (keep as reference, remove when done)
   whiteboard/            🟢 FEATURE  Collaborative canvas (remove if not needed)
-web/resources/           🔴 CORE  Embedded static assets
+web/
+  resources/             🔴 CORE  Embedded static assets (app.min.css, basecoat.min.css, sw.js, theme.js)
+  skins/                 🟡 PLUGIN  Pluggable UI skin registry (daisyui + basecoat + morpheus). Active via `UI_SKIN` / `?skin=`.
 router/                  🔴 CORE  Route wiring
 ```
 
@@ -303,9 +309,19 @@ Watch-outs across recent releases:
 
 Push-to-`master` triggers `.github/workflows/deploy.yml` (Tailscale OIDC + Docker to single server). Server layout/deploy-user/secret tables: see `/skill:cali-ops-deploy-github-tailscale`. Two gotchas: (1) grant container write via `setfacl`/`chmod`, NEVER `chown` (non-root deploy user); (2) never `scp` into the server's repo clone — `git pull --ff-only` aborts. Scratch image healthcheck: `CMD [\"/app\",\"health\"]` (no `wget`/`curl`/`CMD-SHELL`).
 
-## DaisyUI
+## Skins (pluggable DaisyUI / Basecoat / Morpheus)
 
-ALL HTML UI uses DaisyUI components (read https://daisyui.com/llms.txt). Load `/static/app.min.css` (built by `npm run build`, regenerated in Dockerfile). NEVER `daisyui.min.css` (v4 relic, breaks v5 markup).
+HTML UI uses the active skin. DaisyUI v5 is the default; the Basecoat and Morpheus skins ship their own component vocabulary. The active skin is read from `config.Skin` (env `UI_SKIN`, default `"daisyui"`) and can be overridden per request via the `?skin=` query string. The navbar exposes a `SkinSelector` widget that updates the query param and reloads.
+
+**Per-skin rules:**
+
+- **DaisyUI (default).** Use DaisyUI v5 components (read https://daisyui.com/llms.txt). Load `/static/app.min.css` (built by `npm run build`, regenerated in Dockerfile). NEVER `daisyui.min.css` (v4 relic, breaks v5 markup).
+- **Basecoat.** Native Basecoat components + shadcn-style OKLCH tokens. Native Basecoat JS runtime (`basecoat.initAll`) is debounced via `requestAnimationFrame` to be friendly with Datastar DOM morphing — do NOT call `basecoat.initAll` from inline page scripts (Datastar will re-morph and lose the JS-attached event handlers).
+- **Morpheus.** Vendorized web-components bundle (SHA-pinned, `web/skins/morpheus/VENDOR_SHA`); the bundle lives at `/static/morpheus/bundle.js`. Components are pure web components, NOT DaisyUI — read the morpheus neolib templates under `web/skins/morpheus/neolib/` before reusing them.
+
+**Plugin contract** (`web/skins/skin.go`): every skin is a `Skin{Name, Assets}` value registered at init via blank imports in `features/todo/components/skin_imports.go`. The dispatcher falls back to DaisyUI when the env value is unknown, logging a warning. Adding a fourth skin is: create `web/skins/<name>/`, register it from the import file, add a `make css-<name>` target.
+
+**Removing all skins.** Delete `web/skins/`, drop the blank imports in `features/todo/components/skin_imports.go`, drop the `SkinSelector` call from the navbar. The handler's lazy fallback returns DaisyUI assets when no skin is registered.
 
 ## Key config constants (single source of truth)
 
@@ -315,6 +331,10 @@ ALL HTML UI uses DaisyUI components (read https://daisyui.com/llms.txt). Load `/
 | `DefaultClientQueueSize` | `config/config.go` | 64 | Per-client SSE channel buffer |
 | `DefaultSSEHeartbeatInterval` | `config/config.go` | 15s | SSE heartbeat to detect disconnection |
 | `OfflineSync.Enabled` | `config/config.go` | `true` (opt-out: `OFFLINE_SYNC_ENABLED=false`) | Toggle hybrid offline sync |
+| `EntityStore` | `config/config.go` | `"pb"` (alt: `crdt`) | Pluggable persistence strategy. Set via `ENTITY_STORE` |
+| `Skin` | `config/config.go` | `"daisyui"` (alt: `basecoat`, `morpheus`) | Active UI skin. Set via `UI_SKIN` or `?skin=` query |
+| `BuildLabel` | `config/config.go` | `"dev"` | Git tag baked into the binary via `-ldflags="-X main.Version=..."`; surfaced on the navbar version badge |
+| `BuildCommit` | `config/config.go` | `"unknown"` | Short git SHA baked into the binary via `-ldflags="-X main.CommitHash=..."`; surfaced alongside `BuildLabel` |
 
 **One place for all configs:** `config/config.go`. Runtime constants that are package-specific (e.g. `DefaultBaseURL` in `internal/llm/goai.go`) stay cohesionated — but all env vars are documented in config.go's comment block.
 
