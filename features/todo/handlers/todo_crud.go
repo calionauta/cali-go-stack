@@ -40,6 +40,15 @@ func (h *TodoHandler) handleList(c *core.RequestEvent) error {
 		return c.String(statusInternal, "error listing todos")
 	}
 
+	// Total count for the header badge — must reflect ALL owned items,
+	// not just the filtered list, so the count badge stays correct
+	// regardless of the active filter tab (fix CAL-18).
+	totalCount, countErr := h.countOwnedTodos(c)
+	if countErr != nil {
+		slog.Warn("todo: count on list failed, falling back to filtered count", "error", countErr)
+		totalCount = len(todos)
+	}
+
 	// Merge the filter + itemCount signals so the tabs flip and the
 	// header/footer count update; then patch the #todo-list region with
 	// the matching rows. Both must happen on the same SSE response so
@@ -53,13 +62,13 @@ func (h *TodoHandler) handleList(c *core.RequestEvent) error {
 	// breaking the morpheus skin (CAL-14).
 	skinName := h.resolveSkin(c)
 	signals := todo.Signals{
-		Todos: todos, Filter: filter, ItemCount: len(todos),
+		Todos: todos, Filter: filter, ItemCount: totalCount,
 		LLMEnabled: h.llmEnabled(),
 	}
 	sse := sdk.NewSSE(c.Response, c.Request)
 	if err := dshelpers.MergeSignals(sse, todo.Signals{
 		Filter:     filter,
-		ItemCount:  len(todos),
+		ItemCount:  totalCount,
 		Loading:    false,
 		LLMEnabled: h.llmEnabled(),
 	}); err != nil {
@@ -93,11 +102,19 @@ func (h *TodoHandler) handleListFragment(c *core.RequestEvent) error {
 		slog.Error("todo: fragment list failed", "filter", filter, "error", err)
 		return c.String(statusInternal, "error listing todos")
 	}
+	// Total count for the badge — must reflect ALL owned items, not
+	// just the filtered list, so the count stays correct after every
+	// PB realtime refetch (fix CAL-18).
+	totalCount, countErr := h.countOwnedTodos(c)
+	if countErr != nil {
+		slog.Warn("todo: count on fragment failed, falling back to filtered count", "error", countErr)
+		totalCount = len(todos)
+	}
 	skinName := h.resolveSkin(c)
 	signals := todo.Signals{
 		Todos:      todos,
 		Filter:     filter,
-		ItemCount:  len(todos),
+		ItemCount:  totalCount,
 		LLMEnabled: h.llmEnabled(),
 	}
 	var buf bytes.Buffer
@@ -106,6 +123,11 @@ func (h *TodoHandler) handleListFragment(c *core.RequestEvent) error {
 		return c.String(statusInternal, "error rendering list")
 	}
 	c.Response.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Merge the correct item count signal so the client's badge/footer
+	// updates even though this is an HTML fragment (not SSE). Without this
+	// the $itemCount signal would stay stale after PB realtime refetches,
+	// leaving the header badge and footer count out of sync (fix CAL-18).
+	c.Response.Header().Set("datastar-signals", fmt.Sprintf(`{"itemCount":%d}`, totalCount))
 	// Datastar morph hints: when a client re-fetches this fragment (after a
 	// PocketBase realtime record change), the outer morph targets #todo-list
 	// and replaces the whole region — so deletes disappear and creates/updates
