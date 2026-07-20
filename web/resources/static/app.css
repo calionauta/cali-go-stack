@@ -119,17 +119,23 @@
   animation: online-pulse 1.6s ease-in-out infinite;
 }
 /* When the client is offline the realtime/SSE channel is down, so the
-   "X online" count is stale. Reflect that immediately (driven by
-   navigator.onLine in internal/components/offline_banner.templ) instead
-   of leaving a live-green pulsing dot that implies an active connection. */
+   "X online" count is stale. Show a red "offline" badge instead of
+   a live-green pulsing dot with a stale count. Driven by the
+   .is-offline class toggle from reflectPresence() in
+   internal/components/offline_banner.templ. */
 .online-pill.is-offline {
-  background-color: color-mix(in oklab, var(--color-warning) 15%, transparent);
-  color: var(--color-warning);
+  background-color: color-mix(in oklab, var(--color-error) 15%, transparent);
+  color: var(--color-error);
 }
 .online-pill.is-offline .pulse-dot {
-  background-color: var(--color-warning);
+  background-color: var(--color-error);
   animation: none;
 }
+/* Hide the online count and show "offline" text when disconnected. */
+.online-pill .pill-online { display: inline; }
+.online-pill .pill-offline { display: none; }
+.online-pill.is-offline .pill-online { display: none; }
+.online-pill.is-offline .pill-offline { display: inline; }
 @keyframes online-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%      { opacity: 0.4; transform: scale(0.8); }

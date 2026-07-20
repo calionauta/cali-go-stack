@@ -80,10 +80,23 @@ templ OfflineBanner(offlineSync bool) {
 				// SW postMessage bridge — see web/resources/static/sw.js.
 				navigator.serviceWorker.addEventListener("message", function (e) {
 					var data = e.data || {};
-					if (data.type === "sync-start") setState("syncing");
-					else if (data.type === "sync-end") setState("online");
-					else if (data.type === "sync-error") {
+					if (data.type === "sync-start") {
+						setState("syncing");
+						// Connection is back — the SW is replaying queued
+						// mutations. Show the live presence count instead
+						// of stale offline styling.
+						reflectPresence(true);
+					} else if (data.type === "sync-end") {
+						setState("online");
+						// Replay complete — remove offline styling from
+						// presence pills so the live "X online" count
+						// appears with the green pulse again.
+						reflectPresence(true);
+					} else if (data.type === "sync-error") {
 						setState("offline");
+						// Check actual connectivity — a sync-error while
+						// online is just a queued mutation, not a disconnect.
+						reflectPresence(navigator.onLine);
 						// Notify Datastar consumers: a mutation just queued
 						// offline, so forms that set a pending signal before
 						// posting can reset immediately. This SW postMessage is

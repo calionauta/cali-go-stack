@@ -58,8 +58,9 @@ templ TodoList(signals todo.Signals) {
 				</div>
 				<span class="online-pill" data-show="$connectedClients >= 0">
 					<span class="pulse-dot"></span>
-					<span data-text="$connectedClients + ' online'"></span>
-					<span class="hidden sm:inline"> · <span data-text="$realtimeKind"></span></span>
+					<span class="pill-online" data-text="$connectedClients + ' online'"></span>
+					<span class="pill-offline">offline</span>
+					<span class="hidden sm:inline"> · <span class="pill-online" data-text="$realtimeKind"></span></span>
 				</span>
 			</div>
 
@@ -121,7 +122,8 @@ templ TodoList(signals todo.Signals) {
 								<div class="flex items-center gap-2">
 									<span class="online-pill">
 									<span class="pulse-dot"></span>
-									<span data-text="$connectedClients + ' online'"></span>
+									<span class="pill-online" data-text="$connectedClients + ' online'"></span>
+									<span class="pill-offline">offline</span>
 								</span>
 							</div>
 							</div>

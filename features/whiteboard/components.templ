@@ -136,8 +136,11 @@ templ Board(email string, docID string, buildLabel string, buildCommit string, o
 					       id="color-input" name="color" aria-label="Shape color" data-bind="color" data-on:input="$color = $evt.target.value"/>
 					<div class="online-pill" title="People connected to this board">
 						<span class="pulse-dot"></span>
-						<span id="peer-count">1</span>
-						<span>online</span>
+						<span class="pill-online">
+							<span id="peer-count">1</span>
+							<span>online</span>
+						</span>
+						<span class="pill-offline">offline</span>
 					</div>
 					<span id="net-status" class="text-xs text-warning hidden" title="Connection status"></span>
 					<a class="btn btn-sm btn-ghost" data-variant="ghost" href="/whiteboard">Back</a>

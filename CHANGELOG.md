@@ -1,3 +1,21 @@
+## [0.24.4] - 2026-07-20
+
+### Fixed
+
+- **Online presence pill not recovering green state after reconnect.** Service Worker `sync-end` handler
+  called `setState("online")` on the banner but never called `reflectPresence()` to remove the
+  `.is-offline` class from `.online-pill` elements, so the pill stayed yellow after the connection
+  came back. Now calls `reflectPresence(true)` in both `sync-start` and `sync-end` handlers.
+  (CAL-17)
+
+### Changed
+
+- **Offline pill design.** When offline, the pill now shows a red (danger) badge with static dot
+  and `"offline"` text instead of a yellow (warning) badge with a stale count. Text swap is
+  CSS-driven (`.pill-online`/`.pill-offline` spans) to avoid conflicting with Datastar signal
+  updates. Applied to all three skins (DaisyUI, Basecoat, Morpheus) and the whiteboard.
+  (CAL-17)
+
 ## [0.24.3] - 2026-07-19
 
 ### Added
