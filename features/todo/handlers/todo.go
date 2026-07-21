@@ -42,6 +42,9 @@ const (
 	statusBadRequest = 400
 	statusNotFound   = 404
 	statusInternal   = 500
+	skinDaisyUI      = "daisyui"
+	skinMorpheus     = "morpheus"
+	skinBasecoat     = "basecoat"
 )
 
 // resolveSkin picks the active UI skin for a request. Mirrors the
@@ -61,10 +64,10 @@ func (h *TodoHandler) resolveSkin(c *core.RequestEvent) string {
 		}
 	}
 	switch skinName {
-	case "morpheus", "basecoat":
+	case skinMorpheus, skinBasecoat:
 		return skinName
 	default:
-		return "daisyui"
+		return skinDaisyUI
 	}
 }
 
@@ -323,7 +326,7 @@ func (h *TodoHandler) handleIndex(c *core.RequestEvent) error {
 	// DaisyUI uses the shared components.Layout.
 	// BasecoatUI uses its own template with shadcn-style HTML.
 	// Morpheus uses a web component layout (neo.*).
-	if skinName == "morpheus" {
+	if skinName == skinMorpheus {
 		return morpheus.TodoPage(
 			"Todos — gogogo-fullstack-template",
 			signals, userEmail,
@@ -332,7 +335,7 @@ func (h *TodoHandler) handleIndex(c *core.RequestEvent) error {
 			skinName,
 		).Render(c.Request.Context(), c.Response)
 	}
-	if skinName == "basecoat" {
+	if skinName == skinBasecoat {
 		return basecoat.TodoPage(
 			"Todos — gogogo-fullstack-template",
 			signals, userEmail,

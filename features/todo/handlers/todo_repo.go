@@ -70,9 +70,9 @@ func (h *TodoHandler) renderTodoList(todos []todo.Todo, skinName string) templ.C
 // template dispatch.
 func (h *TodoHandler) renderTodoListRegion(signals todo.Signals, skinName string) templ.Component {
 	switch skinName {
-	case "morpheus":
+	case skinMorpheus:
 		return morpheus.TodoListRegion(signals)
-	case "basecoat":
+	case skinBasecoat:
 		return basecoat.TodoListRegion(signals)
 	default:
 		return components.TodoListRegion(signals)
